@@ -1,1 +1,14 @@
-node_modules
+node_modules/
+**/node_modules/
+
+.env
+.env.local
+backend/.env
+frontend/.env.local
+
+backend/prisma/*.db
+
+backend/dist/
+.next/
+dist/
+build/
