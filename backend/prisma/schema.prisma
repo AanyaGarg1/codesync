@@ -1,0 +1,107 @@
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  name      String
+  avatarUrl String?
+  bio       String?
+  role      String   @default("user") // "user" or "admin"
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  rooms     Room[]     @relation("RoomHost")
+  snippets  Snippet[]
+  analytics Analytics?
+}
+
+model Room {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  code        String   @default("")
+  language    String   @default("javascript")
+  isPublic    Boolean  @default(true)
+  passcode    String?
+  hostId      String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  host     User          @relation("RoomHost", fields: [hostId], references: [id], onDelete: Cascade)
+  sessions RoomSession[]
+  notes    Note[]
+}
+
+model RoomSession {
+  id           String    @id @default(uuid())
+  roomId       String
+  hostId       String
+  startTime    DateTime  @default(now())
+  endTime      DateTime?
+  codeSnapshot String    @default("")
+  participants String    @default("[]") // JSON string of participant IDs/names
+
+  // Relations
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+}
+
+model InterviewRecord {
+  id              String   @id @default(uuid())
+  roomId          String
+  candidateName   String
+  interviewerName String
+  date            DateTime @default(now())
+  problemTitle    String
+  language        String
+  feedback        String // AI-generated feedback
+  rating          Float // AI scorecard rating (1-5)
+  scorecard       String // JSON formatted detailed scorecard (coding, communication, optimization)
+  codeHistory     String // Code snapshot
+}
+
+model Note {
+  id        String   @id @default(uuid())
+  roomId    String
+  content   String   @default("")
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)
+}
+
+model Snippet {
+  id        String   @id @default(uuid())
+  title     String
+  code      String
+  language  String
+  isPublic  Boolean  @default(false)
+  userId    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Analytics {
+  id             String @id @default(uuid())
+  userId         String @unique
+  problemsSolved Int    @default(0)
+  totalLines     Int    @default(0)
+  activeDaysCount Int    @default(0)
+  languageStats  String @default("{}") // JSON string mapping language to usage count
+  aiTokensUsed   Int    @default(0)
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
