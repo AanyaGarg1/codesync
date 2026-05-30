@@ -1,7 +1,7 @@
 import { Server, Socket } from 'socket.io';
 import prisma from '../config/db';
 import * as Y from 'yjs';
-import { Awareness, encodeAwarenessUpdate, applyAwarenessUpdate } from 'y-protocols/awareness';
+import { Awareness, encodeAwarenessUpdate, applyAwarenessUpdate, removeAwarenessStates } from 'y-protocols/awareness';
 
 interface UserPresence {
   socketId: string;
@@ -223,7 +223,7 @@ export const setupSocketIO = (io: Server) => {
 
           const awarenessClientId = activeRooms[roomId].clientAwarenessIds[socket.id];
           if (typeof awarenessClientId === 'number') {
-            activeRooms[roomId].awareness.removeStates([awarenessClientId], socket);
+            removeAwarenessStates(activeRooms[roomId].awareness, [awarenessClientId], socket);
             const removalUpdate = encodeAwarenessUpdate(activeRooms[roomId].awareness, [awarenessClientId]);
             socket.to(roomId).emit('awareness-update', removalUpdate);
             delete activeRooms[roomId].clientAwarenessIds[socket.id];

@@ -1,4 +1,4 @@
-import { GoogleGenAI } from '@google/generative-ai';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
 const apiKey = process.env.GEMINI_API_KEY || '';
 
@@ -47,11 +47,11 @@ The current solution has an estimated complexity of **O(N)** time and **O(1)** s
 export const getAIExplanation = async (code: string, language: string) => {
   if (!apiKey) return getMockResponse('explain', code, language);
   try {
-    const ai = new GoogleGenAI({ apiKey });
+    const ai = new GoogleGenerativeAI(apiKey);
     const model = ai.getGenerativeModel({ model: 'gemini-1.5-flash' });
     const prompt = `Explain the following ${language} code clearly, listing its core components, runtime behavior, and key operations:\n\n\`\`\`${language}\n${code}\n\`\`\``;
-    const result = await model.generateContent({ contents: prompt });
-    return result.text || 'No response from AI.';
+    const result = await model.generateContent(prompt);
+    return result.response.text() || 'No response from AI.';
   } catch (error: any) {
     console.error('Gemini API Error:', error);
     return `Error retrieving AI explanation: ${error.message}`;
@@ -61,11 +61,11 @@ export const getAIExplanation = async (code: string, language: string) => {
 export const getAIOptimization = async (code: string, language: string) => {
   if (!apiKey) return getMockResponse('optimize', code, language);
   try {
-    const ai = new GoogleGenAI({ apiKey });
+    const ai = new GoogleGenerativeAI(apiKey);
     const model = ai.getGenerativeModel({ model: 'gemini-1.5-flash' });
     const prompt = `Analyze this ${language} code and suggest time/space complexity optimizations. Provide clean refactored alternatives where relevant:\n\n\`\`\`${language}\n${code}\n\`\`\``;
-    const result = await model.generateContent({ contents: prompt });
-    return result.text || 'No response from AI.';
+    const result = await model.generateContent(prompt);
+    return result.response.text() || 'No response from AI.';
   } catch (error: any) {
     console.error('Gemini API Error:', error);
     return `Error retrieving AI optimizations: ${error.message}`;
@@ -75,11 +75,11 @@ export const getAIOptimization = async (code: string, language: string) => {
 export const detectBugs = async (code: string, language: string) => {
   if (!apiKey) return getMockResponse('bug', code, language);
   try {
-    const ai = new GoogleGenAI({ apiKey });
+    const ai = new GoogleGenerativeAI(apiKey);
     const model = ai.getGenerativeModel({ model: 'gemini-1.5-flash' });
     const prompt = `Detect any bugs, syntax issues, logical gaps, or memory leaks in this ${language} code and describe how to resolve them:\n\n\`\`\`${language}\n${code}\n\`\`\``;
-    const result = await model.generateContent({ contents: prompt });
-    return result.text || 'No response from AI.';
+    const result = await model.generateContent(prompt);
+    return result.response.text() || 'No response from AI.';
   } catch (error: any) {
     console.error('Gemini API Error:', error);
     return `Error retrieving bug analysis: ${error.message}`;
@@ -89,19 +89,11 @@ export const detectBugs = async (code: string, language: string) => {
 export const getInterviewHint = async (code: string, language: string, problemDescription: string) => {
   if (!apiKey) return getMockResponse('hint', code, language);
   try {
-    const ai = new GoogleGenAI({ apiKey });
+    const ai = new GoogleGenerativeAI(apiKey);
     const model = ai.getGenerativeModel({ model: 'gemini-1.5-flash' });
-    const prompt = `You are a technical interviewer. The candidate is trying to solve the following problem:
-"${problemDescription}"
-
-Their current code in ${language} is:
-\`\`\`${language}
-${code}
-\`\`\`
-
-Give them a progressive, helpful algorithmic hint WITHOUT writing the code for them. Keep it brief and encouraging.`;
-    const result = await model.generateContent({ contents: prompt });
-    return result.text || 'No response from AI.';
+    const prompt = `You are a technical interviewer. The candidate is trying to solve the following problem:\n"${problemDescription}"\n\nTheir current code in ${language} is:\n\`\`\`${language}\n${code}\n\`\`\`\n\nGive them a progressive, helpful algorithmic hint WITHOUT writing the code for them. Keep it brief and encouraging.`;
+    const result = await model.generateContent(prompt);
+    return result.response.text() || 'No response from AI.';
   } catch (error: any) {
     console.error('Gemini API Error:', error);
     return `Error retrieving interview hint: ${error.message}`;
@@ -118,24 +110,11 @@ export const getInterviewFeedback = async (code: string, language: string, probl
 
     if (!apiKey) return { text: defaultFeedback, rating: 4.0 };
 
-    const ai = new GoogleGenAI({ apiKey });
+    const ai = new GoogleGenerativeAI(apiKey);
     const model = ai.getGenerativeModel({ model: 'gemini-1.5-flash' });
-    const prompt = `You are a Principal Engineer reviewing an interview session.
-Problem: "${problemDescription}"
-Language: ${language}
-Final Code:
-\`\`\`
-${code}
-\`\`\`
-Session Logs: ${history}
-
-Provide an overall assessment of the candidate's code quality, time/space complexity, and general performance. Return a JSON structure matching:
-{
-  "feedback": "A summary of their performance...",
-  "rating": 4.5
-}`;
-    const result = await model.generateContent({ contents: prompt });
-    const responseText = result.text || '';
+    const prompt = `You are a Principal Engineer reviewing an interview session.\nProblem: "${problemDescription}"\nLanguage: ${language}\nFinal Code:\n\`\`\`\n${code}\n\`\`\`\nSession Logs: ${history}\n\nProvide an overall assessment of the candidate's code quality, time/space complexity, and general performance. Return a JSON structure matching:\n{\n  "feedback": "A summary of their performance...",\n  "rating": 4.5\n}`;
+    const result = await model.generateContent(prompt);
+    const responseText = result.response.text() || '';
     
     // Parse JSON
     try {

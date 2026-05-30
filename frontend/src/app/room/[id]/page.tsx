@@ -588,8 +588,7 @@ export default function RoomPage() {
           </form>
         </div>
       </div>
-    </div>
-  );
+    );
   }
 
   return (
