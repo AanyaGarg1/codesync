@@ -13,25 +13,33 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   };
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
-  const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
-  let data: any;
-
   try {
-    data = await res.json();
-  } catch {
-    if (!res.ok) throw new Error('Request failed');
-    return {} as T;
-  }
+    const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+    let data: any;
 
-  if (!res.ok) {
-    const error = new Error(data.error || 'Request failed') as Error & { status?: number; passcodeRequired?: boolean };
-    error.status = res.status;
-    if (data.passcodeRequired) {
-      error.passcodeRequired = true;
+    try {
+      data = await res.json();
+    } catch {
+      if (!res.ok) throw new Error('Request failed');
+      return {} as T;
     }
-    throw error;
+
+    if (!res.ok) {
+      const error = new Error(data.error || 'Request failed') as Error & { status?: number; passcodeRequired?: boolean };
+      error.status = res.status;
+      if (data.passcodeRequired) {
+        error.passcodeRequired = true;
+      }
+      throw error;
+    }
+    return data as T;
+  } catch (err: any) {
+    // Handle network errors
+    if (err instanceof TypeError && err.message.includes('fetch')) {
+      throw new Error('Cannot connect to server. Make sure the backend is running on http://localhost:4000');
+    }
+    throw err;
   }
-  return data as T;
 }
 
 // Auth
@@ -80,7 +88,7 @@ export const aiAPI = {
       method: 'POST',
       body: JSON.stringify({ code, language, problemDescription }),
     }),
-  feedback: (body: { code: string; language: string; problemDescription: string; history?: string; roomId?: string }) =>
+  feedback: (body: { code: string; language: string; problemDescription: string; history?: string; roomId?: string; duration?: number }) =>
     request<{ text: string; rating: number }>('/ai/feedback', { method: 'POST', body: JSON.stringify(body) }),
 };
 

@@ -5,7 +5,6 @@ import { useParams, useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import * as Y from 'yjs';
-import { MonacoBinding } from 'y-monaco';
 import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate } from 'y-protocols/awareness';
 import { useAuthStore, useRoomStore } from '@/store';
 import { roomsAPI, sandboxAPI, aiAPI } from '@/lib/api';
@@ -369,14 +368,12 @@ export default function RoomPage() {
     });
 
     ydoc.on('update', (update, origin) => {
-      const text = ydoc.getText('monaco').toString();
-      setCode(text);
-      if (origin !== socketRef.current) {
-        socketRef.current?.emit('yjs-update', { roomId, update });
-      }
-    });
+  if (origin !== socketRef.current) {
+    socketRef.current?.emit('yjs-update', { roomId, update });
+  }
+});
 
-    awareness.on('update', ({ added, updated, removed }) => {
+    awareness.on('update', ({ added, updated, removed }: { added: number[]; updated: number[]; removed: number[] }) => {
       if (!socketRef.current) return;
       const clients = [...added, ...updated, ...removed];
       const update = encodeAwarenessUpdate(awareness, clients);
@@ -389,14 +386,27 @@ export default function RoomPage() {
     awarenessRef.current = awareness;
   };
 
-  const attachMonacoBinding = (editor: any) => {
-    if (!yDocRef.current || !awarenessRef.current || !editor) return;
-    if (bindingRef.current) return;
-    const yText = yDocRef.current.getText('monaco');
-    bindingRef.current = new MonacoBinding(yText, editor.getModel(), new Set([editor]), awarenessRef.current);
-    setCode(yText.toString());
-  };
+ const attachMonacoBinding = async (editor: any) => {
+  if (!yDocRef.current || !awarenessRef.current || !editor) return;
+  if (bindingRef.current) return;
 
+  const { MonacoBinding } = await import('y-monaco');
+  const yText = yDocRef.current.getText('monaco');
+
+  bindingRef.current = new MonacoBinding(
+    yText,
+    editor.getModel(),
+    new Set([editor]),
+    awarenessRef.current
+  );
+
+  setCode(yText.toString());
+
+  // ✅ ADD THIS — keep store in sync as editor content changes
+  yText.observe(() => {
+    setCode(yText.toString());
+  });
+};
   useEffect(() => {
     loadRoom();
     return () => {
@@ -521,10 +531,10 @@ export default function RoomPage() {
     }
   };
 
-  const handleEditorMount = (editor: any) => {
+  const handleEditorMount = async(editor: any) => {
     editorRef.current = editor;
     initializeYjs();
-    attachMonacoBinding(editor);
+   await attachMonacoBinding(editor);
   };
 
   const handleLanguageChange = (lang: string) => {
@@ -541,17 +551,33 @@ export default function RoomPage() {
     await loadRoom(passcode.trim());
   };
 
-  const endInterview = async () => {
-    setFetchingFeedback(true);
-    try {
-      const result = await aiAPI.feedback({ code, language, problemDescription, roomId });
-      setFeedbackData(result);
-      setShowInterviewFeedback(true);
-    } catch { setFeedbackData({ text: 'Could not generate feedback at this time.', rating: 3 }); setShowInterviewFeedback(true); }
-    setFetchingFeedback(false);
-    setInterviewMode(false);
-  };
-
+ const endInterview = async () => {
+  setFetchingFeedback(true);
+  
+  // ✅ Emit end to all users first
+  socket?.emit('interview-end', { roomId });
+  
+  try {
+    const durationSeconds = interviewState.startedAt ? Math.floor((Date.now() - interviewState.startedAt) / 1000) : 0;
+    const result = await aiAPI.feedback({
+      code,
+      language,
+      problemDescription: problemDescription || 'General coding problem — evaluate code quality and approach.',
+      roomId,
+      // ✅ pass code as history snapshot
+      history: JSON.stringify([{ timestamp: new Date().toISOString(), code }]),
+      duration: durationSeconds,
+    });
+    setFeedbackData(result);
+    setShowInterviewFeedback(true);
+  } catch {
+    setFeedbackData({ text: 'Could not generate feedback at this time.', rating: 3 });
+    setShowInterviewFeedback(true);
+  }
+  
+  setFetchingFeedback(false);
+  setInterviewState((prev) => ({ ...prev, active: false }));
+};
   const formatTimer = (s: number) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 
   if (loading) return (
@@ -639,10 +665,15 @@ export default function RoomPage() {
             onClick={() => {
               if (!isInterviewer) return;
               if (interviewState.active) {
-                socket?.emit('interview-end', { roomId });
-                endInterview();
+                endInterview(); // ✅ already emits interview-end inside
               } else {
-                socket?.emit('interview-start', { roomId, problemDescription });
+                const defaultProblem = 'Solve a coding problem using a clean and efficient algorithm. Share the approach and assumptions in comments where helpful.';
+                const problem = problemDescription.trim() || defaultProblem;
+                setProblemDescription(problem);
+                socket?.emit('interview-start', {
+                  roomId,
+                  problemDescription: problem,
+                });
               }
             }}
             disabled={fetchingFeedback || (!isInterviewer && !interviewState.active)}
@@ -666,15 +697,19 @@ export default function RoomPage() {
       </header>
 
       {/* Interview problem bar */}
-      {interviewMode && (
+      {interviewState.active && (
         <div className="bg-violet-600/10 border-b border-violet-600/20 px-4 py-2 flex items-center gap-3 flex-shrink-0">
           <span className="text-xs font-semibold text-violet-400 uppercase tracking-wider">Problem</span>
           <input
             value={problemDescription}
             onChange={(e) => setProblemDescription(e.target.value)}
             placeholder="Describe the interview problem here (e.g. Two Sum, Longest Substring without Repeating Characters)..."
-            className="flex-1 bg-transparent border-none outline-none text-sm text-white placeholder-[var(--text-muted)]"
+            readOnly={!isInterviewer}
+            className="flex-1 bg-transparent border-none outline-none text-sm text-white placeholder-[var(--text-muted)] disabled:text-[var(--text-muted)] disabled:cursor-not-allowed"
           />
+          {!isInterviewer && (
+            <div className="text-[var(--text-muted)] text-xs">Problem statement visible to all participants.</div>
+          )}
         </div>
       )}
 

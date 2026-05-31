@@ -99,13 +99,19 @@ export const setupSocketIO = (io: Server) => {
       const currentUpdate = Y.encodeStateAsUpdate(activeRooms[roomId].doc);
       socket.emit('yjs-sync', currentUpdate);
 
-      const awarenessUpdate = encodeAwarenessUpdate(
-        activeRooms[roomId].awareness,
-        Array.from(activeRooms[roomId].awareness.getStates().keys())
-      );
-
-      if (awarenessUpdate.byteLength > 0) {
-        socket.emit('awareness-sync', awarenessUpdate);
+      try {
+        const awarenessStates = Array.from(activeRooms[roomId].awareness.getStates().keys());
+        if (awarenessStates.length > 0) {
+          const awarenessUpdate = encodeAwarenessUpdate(
+            activeRooms[roomId].awareness,
+            awarenessStates
+          );
+          if (awarenessUpdate.byteLength > 0) {
+            socket.emit('awareness-sync', awarenessUpdate);
+          }
+        }
+      } catch (e) {
+        console.error('Failed to send awareness sync:', e);
       }
 
       socket.to(roomId).emit('user-joined', activeRooms[roomId].users[socket.id]);
@@ -222,10 +228,14 @@ export const setupSocketIO = (io: Server) => {
           delete activeRooms[roomId].users[socket.id];
 
           const awarenessClientId = activeRooms[roomId].clientAwarenessIds[socket.id];
-          if (typeof awarenessClientId === 'number') {
-            removeAwarenessStates(activeRooms[roomId].awareness, [awarenessClientId], socket);
-            const removalUpdate = encodeAwarenessUpdate(activeRooms[roomId].awareness, [awarenessClientId]);
-            socket.to(roomId).emit('awareness-update', removalUpdate);
+          if (typeof awarenessClientId === 'number' && activeRooms[roomId].awareness) {
+            try {
+              removeAwarenessStates(activeRooms[roomId].awareness, [awarenessClientId], socket);
+              const removalUpdate = encodeAwarenessUpdate(activeRooms[roomId].awareness, [awarenessClientId]);
+              socket.to(roomId).emit('awareness-update', removalUpdate);
+            } catch (e) {
+              console.error('Failed to remove awareness state:', e);
+            }
             delete activeRooms[roomId].clientAwarenessIds[socket.id];
           }
 

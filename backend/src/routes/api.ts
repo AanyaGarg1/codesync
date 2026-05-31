@@ -129,11 +129,11 @@ router.post('/ai/hint', authenticateJWT as any, async (req: AuthenticatedRequest
 
 router.post('/ai/feedback', authenticateJWT as any, async (req: AuthenticatedRequest, res) => {
   try {
-    const { code, language, problemDescription, history, roomId } = req.body;
+    const { code, language, problemDescription, history, roomId, duration } = req.body;
     if (!code || !language || !problemDescription) {
       return res.status(400).json({ error: 'Missing interview code details.' });
     }
-    const evaluation = await getInterviewFeedback(code, language, problemDescription, history || '[]');
+    const evaluation = await getInterviewFeedback(code, language, problemDescription, history || '[]', duration || 0);
 
     // Save record to DB
     try {

@@ -14,14 +14,11 @@ const LANGUAGE_COLORS: Record<string, string> = {
   java: 'badge-rose',
 };
 
-function Sidebar({ user, onLogout }: { user: any; onLogout: () => void }) {
-  const router = useRouter();
+function Sidebar({ user, activeSection, onSectionChange, onNewRoom, onLogout }: { user: any; activeSection: 'rooms' | 'analytics' | 'interviews'; onSectionChange: (section: 'rooms' | 'analytics' | 'interviews') => void; onNewRoom: () => void; onLogout: () => void }) {
   const links = [
-    { icon: '⊞', label: 'Dashboard', href: '/dashboard', active: true },
-    { icon: '⌨', label: 'New Room', href: '/dashboard', action: 'new-room' },
-    { icon: '📁', label: 'My Rooms', href: '/dashboard' },
-    { icon: '📊', label: 'Analytics', href: '/dashboard' },
-    { icon: '🎯', label: 'Interviews', href: '/dashboard' },
+    { icon: '📁', label: 'My Rooms', section: 'rooms' as const },
+    { icon: '📊', label: 'Analytics', section: 'analytics' as const },
+    { icon: '🎯', label: 'Interviews', section: 'interviews' as const },
   ];
 
   return (
@@ -33,11 +30,19 @@ function Sidebar({ user, onLogout }: { user: any; onLogout: () => void }) {
         </div>
       </div>
       <nav className="p-3 flex-1 space-y-1">
+        <button onClick={onNewRoom} className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all w-full text-left font-medium text-[var(--text-secondary)] hover:text-white hover:bg-white/5">
+          <span className="text-base">⊞</span>
+          <span>New Room</span>
+        </button>
         {links.map((l) => (
-          <Link key={l.label} href={l.href} className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all group ${l.active ? 'bg-violet-600/20 text-violet-300 border border-violet-600/30' : 'text-[var(--text-secondary)] hover:text-white hover:bg-white/5'}`}>
+          <button
+            key={l.label}
+            onClick={() => onSectionChange(l.section)}
+            className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all w-full text-left font-medium ${activeSection === l.section ? 'bg-violet-600/20 text-violet-300 border border-violet-600/30' : 'text-[var(--text-secondary)] hover:text-white hover:bg-white/5'}`}
+          >
             <span className="text-base">{l.icon}</span>
-            <span className="font-medium">{l.label}</span>
-          </Link>
+            <span>{l.label}</span>
+          </button>
         ))}
       </nav>
       <div className="p-3 border-t border-[var(--border)]">
@@ -146,6 +151,7 @@ export default function DashboardPage() {
   const [loadingRooms, setLoadingRooms] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [search, setSearch] = useState('');
+  const [activeSection, setActiveSection] = useState<'rooms' | 'analytics' | 'interviews'>('rooms');
 
   useEffect(() => {
     if (!user) return;
@@ -179,7 +185,13 @@ export default function DashboardPage() {
   return (
     <AuthGuard>
       <div className="flex min-h-screen">
-        <Sidebar user={user} onLogout={handleLogout} />
+        <Sidebar user={user} activeSection={activeSection} onSectionChange={(section) => {
+          setActiveSection(section);
+          document.getElementById(`section-${section}`)?.scrollIntoView({ behavior: 'smooth' });
+        }} onNewRoom={() => {
+          setActiveSection('rooms');
+          setShowCreateModal(true);
+        }} onLogout={handleLogout} />
 
         <main className="flex-1 overflow-auto">
         {/* Header */}
@@ -188,14 +200,14 @@ export default function DashboardPage() {
             <h1 className="text-lg font-bold">Welcome back, <span className="gradient-text">{user?.name || 'Engineer'}</span> 👋</h1>
             <p className="text-sm text-[var(--text-muted)]">Let&apos;s build something great today.</p>
           </div>
-          <button id="new-room-btn" onClick={() => setShowCreateModal(true)} className="btn-primary px-5 py-2.5 text-sm">
+          <button id="new-room-btn" onClick={() => { setActiveSection('rooms'); setShowCreateModal(true); }} className="btn-primary px-5 py-2.5 text-sm">
             + New Room
           </button>
         </div>
 
         <div className="p-8 space-y-8">
           {/* Stats */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <div id="section-analytics" className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <StatsCard label="Problems" value={analytics?.problemsSolved ?? '—'} icon="⚡" color="violet" />
             <StatsCard label="Lines Written" value={analytics?.totalLines ? `${(analytics.totalLines / 1000).toFixed(1)}k` : '—'} icon="📝" color="cyan" />
             <StatsCard label="Active Days" value={analytics?.activeDays ?? '—'} icon="🔥" color="emerald" />
@@ -217,7 +229,7 @@ export default function DashboardPage() {
           )}
 
           {/* Rooms */}
-          <div>
+          <div id="section-rooms">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-bold">Coding Rooms</h2>
               <input
@@ -268,9 +280,9 @@ export default function DashboardPage() {
           </div>
 
           {/* Recent Interviews */}
-          {analytics?.interviews?.length > 0 && (
-            <div>
-              <h2 className="text-lg font-bold mb-4">Recent Interview Sessions</h2>
+          <div id="section-interviews">
+            <h2 className="text-lg font-bold mb-4">Recent Interview Sessions</h2>
+            {analytics?.interviews?.length > 0 ? (
               <div className="space-y-3">
                 {analytics.interviews.slice(0, 5).map((iv: any) => (
                   <div key={iv.id} className="glass rounded-xl px-5 py-4 border border-[var(--border)] flex items-center justify-between">
@@ -292,8 +304,13 @@ export default function DashboardPage() {
                   </div>
                 ))}
               </div>
-            </div>
-          )}
+            ) : (
+              <div className="glass rounded-xl p-8 border border-[var(--border)] text-center text-sm text-[var(--text-secondary)]">
+                No interview sessions have been recorded yet.
+                <div className="mt-3">Start an interview from a room to see feedback sessions here.</div>
+              </div>
+            )}
+          </div>
         </div>
       </main>
 
