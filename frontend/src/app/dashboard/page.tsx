@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store';
-import { roomsAPI, analyticsAPI } from '@/lib/api';
+import { roomsAPI, analyticsAPI, interviewAPI } from '@/lib/api';
 import AuthGuard from '@/components/AuthGuard';
 
 const LANGUAGE_COLORS: Record<string, string> = {
@@ -82,6 +82,7 @@ function CreateRoomModal({ onClose, onCreate }: { onClose: () => void; onCreate:
   const [description, setDescription] = useState('');
   const [language, setLanguage] = useState('javascript');
   const [isPublic, setIsPublic] = useState(true);
+  const [passcode, setPasscode] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -90,7 +91,7 @@ function CreateRoomModal({ onClose, onCreate }: { onClose: () => void; onCreate:
     setLoading(true);
     setError('');
     try {
-      const { room } = await roomsAPI.create({ name, description, language, isPublic });
+      const { room } = await roomsAPI.create({ name, description, language, isPublic, passcode: isPublic ? undefined : passcode || undefined });
       onCreate(room);
     } catch (err: any) {
       setError(err.message || 'Failed to create room.');
@@ -131,6 +132,19 @@ function CreateRoomModal({ onClose, onCreate }: { onClose: () => void; onCreate:
             </button>
             <span className="text-sm text-[var(--text-secondary)]">{isPublic ? 'Public room' : 'Private room'}</span>
           </div>
+          <div>
+            <label className="block text-sm font-medium text-[var(--text-secondary)] mb-2">Passcode</label>
+            <input
+              value={passcode}
+              onChange={(e) => setPasscode(e.target.value)}
+              placeholder="Optional passcode for private room"
+              className="input-field"
+              disabled={isPublic}
+            />
+            <div className="text-xs text-[var(--text-muted)] mt-1">
+              If this room is private, enter a passcode to require authentication before joining.
+            </div>
+          </div>
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onClose} className="btn-secondary flex-1 py-2.5">Cancel</button>
             <button type="submit" disabled={loading} id="create-room-btn" className="btn-primary flex-1 py-2.5">
@@ -148,6 +162,7 @@ export default function DashboardPage() {
   const router = useRouter();
   const [rooms, setRooms] = useState<any[]>([]);
   const [analytics, setAnalytics] = useState<any>(null);
+  const [interviewSessions, setInterviewSessions] = useState<any[]>([]);
   const [loadingRooms, setLoadingRooms] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [search, setSearch] = useState('');
@@ -157,6 +172,7 @@ export default function DashboardPage() {
     if (!user) return;
     loadRooms();
     loadAnalytics();
+    loadInterviews();
   }, [user?.id]);
 
   const loadRooms = async () => {
@@ -172,6 +188,13 @@ export default function DashboardPage() {
     try {
       const data = await analyticsAPI.dashboard();
       setAnalytics(data);
+    } catch { /* ignore */ }
+  };
+
+  const loadInterviews = async () => {
+    try {
+      const data = await interviewAPI.list();
+      setInterviewSessions(data.sessions || []);
     } catch { /* ignore */ }
   };
 

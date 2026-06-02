@@ -88,8 +88,16 @@ export const aiAPI = {
       method: 'POST',
       body: JSON.stringify({ code, language, problemDescription }),
     }),
-  feedback: (body: { code: string; language: string; problemDescription: string; history?: string; roomId?: string; duration?: number }) =>
+  feedback: (body: { code: string; language: string; problemDescription: string; history?: string; roomId?: string; duration?: number; sessionId?: string }) =>
     request<{ text: string; rating: number }>('/ai/feedback', { method: 'POST', body: JSON.stringify(body) }),
+};
+
+export const interviewAPI = {
+  getReport: (roomId: string, sessionId?: string) =>
+    request<{ session: any }>(`/rooms/${roomId}/interview/report${sessionId ? `?sessionId=${sessionId}` : ''}`),
+  saveFeedback: (roomId: string, body: { sessionId: string; communication: number; problemSolving: number; codingSkills: number; dsaKnowledge: number; comments: string }) =>
+    request<{ session: any }>(`/rooms/${roomId}/interview/feedback`, { method: 'POST', body: JSON.stringify(body) }),
+  list: () => request<{ sessions: any[] }>('/interviews'),
 };
 
 // Analytics

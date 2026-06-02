@@ -7,9 +7,10 @@ import Link from 'next/link';
 import * as Y from 'yjs';
 import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate } from 'y-protocols/awareness';
 import { useAuthStore, useRoomStore } from '@/store';
-import { roomsAPI, sandboxAPI, aiAPI } from '@/lib/api';
+import { roomsAPI, sandboxAPI, aiAPI, interviewAPI } from '@/lib/api';
 import { connectSocket, disconnectSocket } from '@/lib/socket';
 import AuthGuard from '@/components/AuthGuard';
+import type { InterviewFeedbackForm, TabViolation } from '@/types/interview';
 
 // Lazy load Monaco
 const MonacoEditor = dynamic(() => import('@monaco-editor/react'), { ssr: false, loading: () => <div className="flex-1 skeleton" /> });
@@ -348,7 +349,17 @@ export default function RoomPage() {
     hostId: '',
   });
   const [isInterviewer, setIsInterviewer] = useState(false);
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [tabViolations, setTabViolations] = useState<TabViolation[]>([]);
+  const [showViolationBanner, setShowViolationBanner] = useState(false);
+  const [aiStatus, setAiStatus] = useState<'ready' | 'fallback' | 'unavailable'>('ready');
+  const [feedbackForm, setFeedbackForm] = useState<InterviewFeedbackForm>({ communication: 3, problemSolving: 3, codingSkills: 3, dsaKnowledge: 3, comments: '' });
+  const [showManualFeedback, setShowManualFeedback] = useState(false);
+  const [reportReady, setReportReady] = useState(false);
+  const [reportPayload, setReportPayload] = useState<any>(null);
   const timerRef = useRef<any>(null);
+  const hiddenAtRef = useRef<number | null>(null);
+  const blurAtRef = useRef<number | null>(null);
   const yDocRef = useRef<Y.Doc | null>(null);
   const awarenessRef = useRef<Awareness | null>(null);
   const editorRef = useRef<any>(null);
@@ -438,7 +449,7 @@ export default function RoomPage() {
     }
     s.on('connect', joinRoom);
 
-    s.on('room-state', ({ language: l, users, interviewState }: any) => {
+    s.on('room-state', ({ language: l, users, interviewState, tabViolations: violations, aiStatus: status, currentSessionId }: any) => {
       if (l) setLanguage(l);
       if (users) setUsers(users);
       if (interviewState) {
@@ -446,6 +457,9 @@ export default function RoomPage() {
         setProblemDescription(interviewState.problemDescription || '');
         setIsInterviewer(interviewState.hostId === user?.id);
       }
+      if (violations) setTabViolations(violations);
+      if (status) setAiStatus(status);
+      if (currentSessionId) setSessionId(currentSessionId);
     });
 
     s.on('yjs-sync', (update: ArrayBuffer) => {
@@ -479,6 +493,15 @@ export default function RoomPage() {
       setProblemDescription(state.problemDescription || '');
       setIsInterviewer(state.hostId === user?.id);
     });
+    s.on('interview-session', ({ sessionId }: any) => {
+      if (sessionId) setSessionId(sessionId);
+    });
+    s.on('violation-update', ({ count, violation }: any) => {
+      setTabViolations((prev) => [...prev, violation]);
+      if (!isInterviewer) setShowViolationBanner(true);
+    });
+    s.on('tab-violations', (violations: any[]) => setTabViolations(violations || []));
+    s.on('ai-status', (status: 'ready' | 'fallback' | 'unavailable') => setAiStatus(status));
 
     return () => {
       s.off('connect', joinRoom);
@@ -490,6 +513,10 @@ export default function RoomPage() {
       s.off('language-update');
       s.off('presence-update');
       s.off('interview-state');
+      s.off('interview-session');
+      s.off('violation-update');
+      s.off('tab-violations');
+      s.off('ai-status');
     };
   }, [room, user]);
 
@@ -506,6 +533,57 @@ export default function RoomPage() {
     }
     return () => clearInterval(timerRef.current);
   }, [interviewState.active, interviewState.startedAt]);
+
+  useEffect(() => {
+    if (!interviewState.active || isInterviewer || !socket) return;
+
+    const reportViolation = (reason: string, durationMs: number) => {
+      const violation: TabViolation = {
+        timestamp: Date.now(),
+        durationMs,
+        userId: user?.id || 'anonymous',
+        userName: user?.name || 'Candidate',
+        reason,
+      };
+      setTabViolations((prev) => [...prev, violation]);
+      setShowViolationBanner(true);
+      socket.emit('tab-violation', { roomId, reason, durationMs });
+      window.setTimeout(() => setShowViolationBanner(false), 6000);
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        hiddenAtRef.current = Date.now();
+        reportViolation('Browser tab hidden', 0);
+      } else if (document.visibilityState === 'visible' && hiddenAtRef.current) {
+        const duration = Date.now() - hiddenAtRef.current;
+        reportViolation('Browser tab returned', duration);
+        hiddenAtRef.current = null;
+      }
+    };
+
+    const handleBlur = () => {
+      blurAtRef.current = Date.now();
+    };
+
+    const handleFocus = () => {
+      if (blurAtRef.current) {
+        const duration = Date.now() - blurAtRef.current;
+        reportViolation('Window lost focus', duration);
+        blurAtRef.current = null;
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('blur', handleBlur);
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('blur', handleBlur);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [interviewState.active, isInterviewer, socket, roomId, user]);
 
   const loadRoom = async (enteredPasscode?: string) => {
     setLoading(true);
@@ -553,10 +631,8 @@ export default function RoomPage() {
 
  const endInterview = async () => {
   setFetchingFeedback(true);
-  
-  // ✅ Emit end to all users first
   socket?.emit('interview-end', { roomId });
-  
+
   try {
     const durationSeconds = interviewState.startedAt ? Math.floor((Date.now() - interviewState.startedAt) / 1000) : 0;
     const result = await aiAPI.feedback({
@@ -564,20 +640,117 @@ export default function RoomPage() {
       language,
       problemDescription: problemDescription || 'General coding problem — evaluate code quality and approach.',
       roomId,
-      // ✅ pass code as history snapshot
+      sessionId: sessionId || undefined,
       history: JSON.stringify([{ timestamp: new Date().toISOString(), code }]),
       duration: durationSeconds,
     });
     setFeedbackData(result);
     setShowInterviewFeedback(true);
+    setShowManualFeedback(true);
   } catch {
     setFeedbackData({ text: 'Could not generate feedback at this time.', rating: 3 });
     setShowInterviewFeedback(true);
+    setShowManualFeedback(true);
   }
-  
+
   setFetchingFeedback(false);
   setInterviewState((prev) => ({ ...prev, active: false }));
 };
+
+  const handleSaveInterviewerFeedback = async () => {
+    if (!sessionId) return;
+    setFetchingFeedback(true);
+    try {
+      const { session } = await interviewAPI.saveFeedback(roomId, {
+        sessionId,
+        communication: feedbackForm.communication,
+        problemSolving: feedbackForm.problemSolving,
+        codingSkills: feedbackForm.codingSkills,
+        dsaKnowledge: feedbackForm.dsaKnowledge,
+        comments: feedbackForm.comments,
+      });
+      setReportPayload(session);
+      setReportReady(true);
+      setShowManualFeedback(false);
+    } catch (err: any) {
+      console.error('Unable to save interviewer feedback', err);
+    } finally {
+      setFetchingFeedback(false);
+    }
+  };
+
+  const downloadJsonReport = () => {
+    const data = {
+      room: room?.name,
+      host: room?.host?.name,
+      sessionId,
+      problemDescription,
+      durationSeconds: interviewState.startedAt ? Math.floor((Date.now() - interviewState.startedAt) / 1000) : 0,
+      code,
+      aiFeedback: feedbackData?.text,
+      aiRating: feedbackData?.rating,
+      interviewerFeedback: feedbackForm.comments,
+      interviewerRatings: feedbackForm,
+      violations: tabViolations,
+      participants: connectedUsers,
+      generatedAt: new Date().toISOString(),
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `codesync-interview-report-${roomId}.json`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const downloadPdfReport = async () => {
+    try {
+      const { jsPDF } = await import('jspdf');
+      const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+      const lines = [
+        'CodeSync AI Interview Report',
+        `Room: ${room?.name || 'N/A'}`,
+        `Host: ${room?.host?.name || 'N/A'}`,
+        `Problem: ${problemDescription || 'N/A'}`,
+        `Duration: ${formatTimer(timer)}`,
+        `Participants: ${connectedUsers.map((u) => u.name).join(', ')}`,
+        `Violations: ${tabViolations.length}`,
+        '',
+        'AI Feedback',
+        feedbackData?.text || 'No AI feedback available.',
+        '',
+        'Interviewer Feedback',
+        feedbackForm.comments || 'No manual feedback provided.',
+        '',
+        'Ratings',
+        `Communication: ${feedbackForm.communication}`,
+        `Problem Solving: ${feedbackForm.problemSolving}`,
+        `Coding Skills: ${feedbackForm.codingSkills}`,
+        `DSA Knowledge: ${feedbackForm.dsaKnowledge}`,
+      ];
+      let y = 40;
+      doc.setFontSize(16);
+      doc.text(lines[0], 40, y);
+      y += 30;
+      doc.setFontSize(11);
+      lines.slice(1).forEach((line) => {
+        if (y > 760) {
+          doc.addPage();
+          y = 40;
+        }
+        doc.text(String(line), 40, y);
+        y += 18;
+      });
+      doc.save(`codesync-interview-report-${roomId}.pdf`);
+    } catch (err) {
+      console.error('PDF generation failed', err);
+      alert('Failed to generate PDF report.');
+    }
+  };
+
   const formatTimer = (s: number) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 
   if (loading) return (
@@ -698,18 +871,44 @@ export default function RoomPage() {
 
       {/* Interview problem bar */}
       {interviewState.active && (
-        <div className="bg-violet-600/10 border-b border-violet-600/20 px-4 py-2 flex items-center gap-3 flex-shrink-0">
-          <span className="text-xs font-semibold text-violet-400 uppercase tracking-wider">Problem</span>
-          <input
-            value={problemDescription}
-            onChange={(e) => setProblemDescription(e.target.value)}
-            placeholder="Describe the interview problem here (e.g. Two Sum, Longest Substring without Repeating Characters)..."
-            readOnly={!isInterviewer}
-            className="flex-1 bg-transparent border-none outline-none text-sm text-white placeholder-[var(--text-muted)] disabled:text-[var(--text-muted)] disabled:cursor-not-allowed"
-          />
+        <div className="bg-violet-600/10 border-b border-violet-600/20 px-4 py-2 flex flex-col gap-3 flex-shrink-0">
+          <div className="flex items-center gap-3">
+            <span className="text-xs font-semibold text-violet-400 uppercase tracking-wider">Problem</span>
+            <input
+              value={problemDescription}
+              onChange={(e) => setProblemDescription(e.target.value)}
+              placeholder="Describe the interview problem here (e.g. Two Sum, Longest Substring without Repeating Characters)..."
+              readOnly={!isInterviewer}
+              className="flex-1 bg-transparent border-none outline-none text-sm text-white placeholder-[var(--text-muted)] disabled:text-[var(--text-muted)] disabled:cursor-not-allowed"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3 text-[var(--text-muted)] text-xs">
+            <div className="flex items-center gap-2">
+              <span className="badge badge-violet text-[0.65rem] uppercase">Elapsed</span>
+              <span>{formatTimer(timer)}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="badge badge-cyan text-[0.65rem] uppercase">AI Status</span>
+              <span>{aiStatus === 'ready' ? 'Gemini ready' : aiStatus === 'fallback' ? 'Fallback active' : 'Unavailable'}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="badge badge-rose text-[0.65rem] uppercase">Violations</span>
+              <span>{tabViolations.length}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="badge badge-emerald text-[0.65rem] uppercase">Participants</span>
+              <span>{connectedUsers.length}</span>
+            </div>
+          </div>
           {!isInterviewer && (
             <div className="text-[var(--text-muted)] text-xs">Problem statement visible to all participants.</div>
           )}
+        </div>
+      )}
+      {showViolationBanner && !isInterviewer && (
+        <div className="bg-rose-500/10 border border-rose-500/40 text-rose-100 px-4 py-3 text-sm font-medium flex items-center gap-3">
+          <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
+          Focus was lost during the interview. The host has been notified and this incident will be included in the report.
         </div>
       )}
 
@@ -772,16 +971,83 @@ export default function RoomPage() {
 
       {/* Interview Feedback Modal */}
       {showInterviewFeedback && feedbackData && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
-          <div className="glass-elevated rounded-2xl p-8 w-full max-w-lg border border-violet-600/30 space-y-5">
-            <div className="flex items-center justify-between">
-              <h2 className="text-xl font-black">🎯 Interview Feedback</h2>
-              <div className="text-4xl font-black gradient-text">{feedbackData.rating?.toFixed(1)}<span className="text-lg text-[var(--text-secondary)]">/5</span></div>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm px-4 py-6">
+          <div className="glass-elevated rounded-2xl p-8 w-full max-w-xl border border-violet-600/30 space-y-6">
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h2 className="text-2xl font-black">🎯 Interview Feedback</h2>
+                <p className="text-sm text-[var(--text-muted)] mt-1">Review AI insight, add interviewer notes, and export the session report.</p>
+              </div>
+              <div className="text-4xl font-black gradient-text">
+                {feedbackData.rating?.toFixed(1) ?? 'N/A'}
+                <span className="text-lg text-[var(--text-secondary)]">/5</span>
+              </div>
             </div>
-            <div className="prose-dark text-sm whitespace-pre-wrap leading-relaxed bg-[var(--bg-card)] rounded-xl p-4 max-h-64 overflow-auto">
-              {feedbackData.text}
+
+            <div className="space-y-4">
+              <div className="text-sm font-semibold uppercase tracking-wide text-[var(--text-muted)]">AI feedback</div>
+              <div className="prose-dark text-sm whitespace-pre-wrap leading-relaxed bg-[var(--bg-card)] rounded-xl p-4 max-h-64 overflow-auto">
+                {feedbackData.text || 'No AI feedback available.'}
+              </div>
             </div>
-            <button onClick={() => setShowInterviewFeedback(false)} className="btn-primary w-full py-3">Close →</button>
+
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-sm font-semibold uppercase tracking-wide text-[var(--text-muted)]">Interviewer feedback</div>
+                <button
+                  type="button"
+                  onClick={() => setShowManualFeedback((prev) => !prev)}
+                  className="text-xs uppercase tracking-wide text-violet-300 hover:text-white"
+                >
+                  {showManualFeedback ? 'Hide notes' : 'Add notes'}
+                </button>
+              </div>
+              {showManualFeedback && (
+                <div className="space-y-4 bg-[var(--bg-card)] rounded-xl p-4 border border-[var(--border)]">
+                  <div className="grid grid-cols-2 gap-3">
+                    {(['communication', 'problemSolving', 'codingSkills', 'dsaKnowledge'] as const).map((field) => (
+                      <label key={field} className="block text-xs text-[var(--text-muted)]">
+                        <span className="block mb-1 capitalize">{field.replace(/([A-Z])/g, ' $1')}</span>
+                        <input
+                          type="range"
+                          min={1}
+                          max={5}
+                          value={feedbackForm[field]}
+                          onChange={(event) => setFeedbackForm((prev) => ({ ...prev, [field]: Number(event.target.value) }))}
+                          className="w-full"
+                        />
+                        <div className="text-xs text-[var(--text-secondary)]">{feedbackForm[field]}</div>
+                      </label>
+                    ))}
+                  </div>
+                  <div>
+                    <label className="block text-xs text-[var(--text-muted)] mb-2">Comments</label>
+                    <textarea
+                      value={feedbackForm.comments}
+                      onChange={(event) => setFeedbackForm((prev) => ({ ...prev, comments: event.target.value }))}
+                      placeholder="Add interviewer observations, strengths, and improvement areas..."
+                      rows={4}
+                      className="input-field w-full resize-none"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleSaveInterviewerFeedback}
+                    disabled={fetchingFeedback}
+                    className="btn-primary w-full py-3"
+                  >
+                    {fetchingFeedback ? 'Saving...' : 'Save interviewer feedback'}
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <button onClick={downloadJsonReport} className="btn-secondary py-3 w-full">Download JSON Report</button>
+              <button onClick={downloadPdfReport} className="btn-secondary py-3 w-full">Download PDF Report</button>
+            </div>
+
+            <button onClick={() => setShowInterviewFeedback(false)} className="btn-primary w-full py-3">Close</button>
           </div>
         </div>
       )}
