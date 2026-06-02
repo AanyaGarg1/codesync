@@ -43,13 +43,24 @@ model Room {
 }
 
 model RoomSession {
-  id           String    @id @default(uuid())
-  roomId       String
-  hostId       String
-  startTime    DateTime  @default(now())
-  endTime      DateTime?
-  codeSnapshot String    @default("")
-  participants String    @default("[]") // JSON string of participant IDs/names
+  id                  String   @id @default(uuid())
+  roomId              String
+  hostId              String
+  startTime           DateTime @default(now())
+  endTime             DateTime?
+  problemStatement    String?
+  language            String   @default("javascript")
+  codeSnapshot        String   @default("")
+  codeSnapshots       String   @default("[]")
+  finalCode           String?
+  participants        String   @default("[]")
+  chatMessages        String   @default("[]")
+  aiFeedback          String?
+  interviewerFeedback String?
+  interviewerRatings  String   @default("{}")
+  tabViolations       String   @default("[]")
+  durationSeconds     Int?
+  reportJson          String?
 
   // Relations
   room Room @relation(fields: [roomId], references: [id], onDelete: Cascade)

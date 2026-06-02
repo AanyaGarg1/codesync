@@ -1,10 +1,14 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
 const apiKey = process.env.GEMINI_API_KEY || '';
-const MODEL_NAME = process.env.GEMINI_MODEL || 'gemini-2.0';
-const FALLBACK_MODEL = process.env.GEMINI_FALLBACK_MODEL || '';
+const MODEL_NAME = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
+const FALLBACK_MODEL = process.env.GEMINI_FALLBACK_MODEL || 'gemini-2.0-flash';
 const API_VERSION = process.env.GEMINI_API_VERSION || 'v1';
-
+console.log("API KEY LOADED:", apiKey ? "YES" : "NO");
+console.log("MODEL:", MODEL_NAME);
+console.log("API KEY EXISTS:", !!apiKey);
+console.log("MODEL_NAME:", MODEL_NAME);
+console.log("FALLBACK_MODEL:", FALLBACK_MODEL);
 if (!apiKey) {
   console.warn('Gemini API key missing. Gemini AI routes will return development mock responses. Set GEMINI_API_KEY in backend/.env to enable real AI.');
 }
@@ -38,31 +42,40 @@ const generateGeminiResponse = async (prompt: string) => {
 
   const execute = async (modelName: string) => {
     const model = createGeminiModel(ai, modelName);
+    console.log("USING MODEL:", modelName);
     const result = await model.generateContent(prompt);
     return result.response.text() || 'No response from AI.';
   };
 
-  try {
-    return await execute(MODEL_NAME);
-  } catch (error: any) {
-    const msg = error?.message || String(error);
-    if (MODEL_NAME !== FALLBACK_MODEL && /not found|404/i.test(msg)) {
-      console.warn(`Model ${MODEL_NAME} unavailable, falling back to ${FALLBACK_MODEL}: ${msg}`);
-      try {
-        return await execute(FALLBACK_MODEL);
-      } catch (fallbackError: any) {
-        console.error('Fallback Gemini model error:', fallbackError);
-        if (shouldReturnMockOnError(fallbackError)) {
-          throw new Error('quota-or-service-error');
-        }
-        throw fallbackError;
+ try {
+  return await execute(MODEL_NAME);
+} catch (error: any) {
+  console.error("FULL GEMINI ERROR:", error);
+
+  const msg = error?.message || String(error);
+
+  if (MODEL_NAME !== FALLBACK_MODEL && /not found|404/i.test(msg)) {
+    console.warn(`Model ${MODEL_NAME} unavailable, falling back to ${FALLBACK_MODEL}: ${msg}`);
+
+    try {
+      return await execute(FALLBACK_MODEL);
+    } catch (fallbackError: any) {
+      console.error("FALLBACK GEMINI ERROR:", fallbackError);
+
+      if (shouldReturnMockOnError(fallbackError)) {
+        throw new Error("quota-or-service-error");
       }
+
+      throw fallbackError;
     }
-    if (shouldReturnMockOnError(error)) {
-      throw new Error('quota-or-service-error');
-    }
-    throw error;
   }
+
+  if (shouldReturnMockOnError(error)) {
+    throw new Error("quota-or-service-error");
+  }
+
+  throw error;
+}
 };
 
 const handleAIError = (error: any, type: 'explain' | 'optimize' | 'bug' | 'hint', code: string, language: string) => {

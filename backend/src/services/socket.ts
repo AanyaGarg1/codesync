@@ -29,6 +29,9 @@ interface ActiveRoomState {
   chatHistory: any[];
   interviewState: InterviewState;
   clientAwarenessIds: Record<string, number>;
+  currentSessionId?: string;
+  tabViolations: Array<{ timestamp: number; durationMs: number; userId: string; userName: string; reason: string }>;
+  aiStatus: 'ready' | 'fallback' | 'unavailable';
 }
 
 const activeRooms: Record<string, ActiveRoomState> = {};
@@ -39,6 +42,8 @@ const createRoomState = (roomId: string, roomDb: any) => {
   yText.insert(0, roomDb?.code || '');
 
   const awareness = new Awareness(doc);
+
+  const aiStatus: 'ready' | 'fallback' | 'unavailable' = process.env.GEMINI_API_KEY ? 'ready' : 'unavailable';
 
   return {
     hostId: roomDb?.hostId || 'unknown',
@@ -55,6 +60,9 @@ const createRoomState = (roomId: string, roomDb: any) => {
       hostId: roomDb?.hostId || 'unknown',
     },
     clientAwarenessIds: {},
+    currentSessionId: undefined,
+    tabViolations: [],
+    aiStatus,
   };
 };
 
@@ -94,29 +102,28 @@ export const setupSocketIO = (io: Server) => {
         chatHistory: activeRooms[roomId].chatHistory,
         interviewState: activeRooms[roomId].interviewState,
         hostId: activeRooms[roomId].hostId,
+        tabViolations: activeRooms[roomId].tabViolations,
+        aiStatus: activeRooms[roomId].aiStatus,
+        currentSessionId: activeRooms[roomId].currentSessionId,
       });
 
       const currentUpdate = Y.encodeStateAsUpdate(activeRooms[roomId].doc);
       socket.emit('yjs-sync', currentUpdate);
 
-      try {
-        const awarenessStates = Array.from(activeRooms[roomId].awareness.getStates().keys());
-        if (awarenessStates.length > 0) {
-          const awarenessUpdate = encodeAwarenessUpdate(
-            activeRooms[roomId].awareness,
-            awarenessStates
-          );
-          if (awarenessUpdate.byteLength > 0) {
-            socket.emit('awareness-sync', awarenessUpdate);
-          }
-        }
-      } catch (e) {
-        console.error('Failed to send awareness sync:', e);
+      const awarenessUpdate = encodeAwarenessUpdate(
+        activeRooms[roomId].awareness,
+        Array.from(activeRooms[roomId].awareness.getStates().keys())
+      );
+
+      if (awarenessUpdate.byteLength > 0) {
+        socket.emit('awareness-sync', awarenessUpdate);
       }
 
       socket.to(roomId).emit('user-joined', activeRooms[roomId].users[socket.id]);
       io.to(roomId).emit('presence-update', Object.values(activeRooms[roomId].users));
       io.to(roomId).emit('interview-state', activeRooms[roomId].interviewState);
+      io.to(roomId).emit('tab-violations', activeRooms[roomId].tabViolations);
+      io.to(roomId).emit('ai-status', activeRooms[roomId].aiStatus);
 
       console.log(`User ${name} joined room: ${roomId}`);
     });
@@ -150,7 +157,7 @@ export const setupSocketIO = (io: Server) => {
       }
     });
 
-    socket.on('interview-start', ({ roomId, problemDescription }) => {
+    socket.on('interview-start', async ({ roomId, problemDescription }) => {
       if (!activeRooms[roomId]) return;
       const room = activeRooms[roomId];
       if (room.hostId !== activeRooms[roomId].users[socket.id]?.userId) {
@@ -159,6 +166,28 @@ export const setupSocketIO = (io: Server) => {
       room.interviewState.active = true;
       room.interviewState.startedAt = Date.now();
       room.interviewState.problemDescription = problemDescription || room.interviewState.problemDescription;
+
+      try {
+        const session = await prisma.roomSession.create({
+          data: {
+            roomId,
+            hostId: room.hostId,
+            startTime: new Date(room.interviewState.startedAt),
+            problemStatement: room.interviewState.problemDescription,
+            language: room.language,
+            codeSnapshot: room.doc.getText('monaco').toString(),
+            codeSnapshots: JSON.stringify([room.doc.getText('monaco').toString()]),
+            participants: JSON.stringify(Object.values(room.users).map((u) => ({ id: u.userId, name: u.name }))),
+            chatMessages: JSON.stringify(room.chatHistory),
+          },
+        });
+        room.currentSessionId = session.id;
+        socket.to(roomId).emit('interview-session', { sessionId: session.id });
+        socket.emit('interview-session', { sessionId: session.id });
+      } catch (err) {
+        console.error('Failed to create interview session record:', err);
+      }
+
       socket.to(roomId).emit('interview-state', room.interviewState);
       socket.emit('interview-state', room.interviewState);
     });
@@ -173,15 +202,44 @@ export const setupSocketIO = (io: Server) => {
       io.to(roomId).emit('interview-state', room.interviewState);
     });
 
-    socket.on('interview-end', ({ roomId }) => {
+    socket.on('interview-end', async ({ roomId }) => {
       if (!activeRooms[roomId]) return;
       const room = activeRooms[roomId];
       if (room.hostId !== activeRooms[roomId].users[socket.id]?.userId) {
         return;
       }
       room.interviewState.active = false;
+      const endedAt = Date.now();
+      const durationSeconds = room.interviewState.startedAt ? Math.floor((endedAt - room.interviewState.startedAt) / 1000) : 0;
+
+      if (room.currentSessionId) {
+        try {
+          await prisma.roomSession.update({
+            where: { id: room.currentSessionId },
+            data: {
+              endTime: new Date(endedAt),
+              durationSeconds,
+              finalCode: room.doc.getText('monaco').toString(),
+              codeSnapshots: JSON.stringify([room.doc.getText('monaco').toString()]),
+              participants: JSON.stringify(Object.values(room.users).map((u) => ({ id: u.userId, name: u.name }))),
+              chatMessages: JSON.stringify(room.chatHistory),
+              tabViolations: JSON.stringify(room.tabViolations || []),
+              reportJson: JSON.stringify({
+                problemStatement: room.interviewState.problemDescription,
+                participants: Object.values(room.users).map((u) => ({ id: u.userId, name: u.name })),
+                violations: room.tabViolations,
+              }),
+            },
+          });
+        } catch (err) {
+          console.error('Failed to finalize interview session record:', err);
+        }
+        room.currentSessionId = undefined;
+      }
+
       room.interviewState.startedAt = null;
       io.to(roomId).emit('interview-state', room.interviewState);
+      io.to(roomId).emit('tab-violations', room.tabViolations);
     });
 
     socket.on('whiteboard-draw', ({ roomId, drawAction }) => {
@@ -219,6 +277,22 @@ export const setupSocketIO = (io: Server) => {
       }
     });
 
+    socket.on('tab-violation', ({ roomId, reason, durationMs }) => {
+      if (!activeRooms[roomId]) return;
+      const room = activeRooms[roomId];
+      const user = room.users[socket.id];
+      if (!user) return;
+      const violation = {
+        timestamp: Date.now(),
+        durationMs: Number(durationMs) || 0,
+        userId: user.userId,
+        userName: user.name,
+        reason: reason || 'Browser focus lost',
+      };
+      room.tabViolations.push(violation);
+      io.to(roomId).emit('violation-update', { count: room.tabViolations.length, violation });
+    });
+
     socket.on('disconnect', async () => {
       console.log(`Socket disconnected: ${socket.id}`);
       for (const roomId in activeRooms) {
@@ -228,14 +302,10 @@ export const setupSocketIO = (io: Server) => {
           delete activeRooms[roomId].users[socket.id];
 
           const awarenessClientId = activeRooms[roomId].clientAwarenessIds[socket.id];
-          if (typeof awarenessClientId === 'number' && activeRooms[roomId].awareness) {
-            try {
-              removeAwarenessStates(activeRooms[roomId].awareness, [awarenessClientId], socket);
-              const removalUpdate = encodeAwarenessUpdate(activeRooms[roomId].awareness, [awarenessClientId]);
-              socket.to(roomId).emit('awareness-update', removalUpdate);
-            } catch (e) {
-              console.error('Failed to remove awareness state:', e);
-            }
+          if (typeof awarenessClientId === 'number') {
+            removeAwarenessStates(activeRooms[roomId].awareness, [awarenessClientId], socket);
+            const removalUpdate = encodeAwarenessUpdate(activeRooms[roomId].awareness, [awarenessClientId]);
+            socket.to(roomId).emit('awareness-update', removalUpdate);
             delete activeRooms[roomId].clientAwarenessIds[socket.id];
           }
 

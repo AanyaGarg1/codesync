@@ -1,4 +1,5 @@
 import { Response } from 'express';
+import bcrypt from 'bcryptjs';
 import prisma from '../config/db';
 import { AuthenticatedRequest } from '../middleware/auth';
 
@@ -31,6 +32,7 @@ export const createRoom = async (req: AuthenticatedRequest, res: Response) => {
         startingCode = '// CodeSync AI Room\nconsole.log("Hello, CodeSync!");\n';
     }
 
+    const hashedPasscode = passcode ? await bcrypt.hash(String(passcode), 10) : null;
     const room = await prisma.room.create({
       data: {
         name,
@@ -38,7 +40,7 @@ export const createRoom = async (req: AuthenticatedRequest, res: Response) => {
         language: language || 'javascript',
         code: startingCode,
         isPublic: isPublic !== undefined ? isPublic : true,
-        passcode: passcode || null,
+        passcode: hashedPasscode,
         hostId,
       },
       include: {
@@ -52,7 +54,8 @@ export const createRoom = async (req: AuthenticatedRequest, res: Response) => {
       },
     });
 
-    return res.status(201).json({ room });
+    const { passcode: _, ...publicRoom } = room as any;
+    return res.status(201).json({ room: publicRoom });
   } catch (error) {
     console.error('Create Room Error:', error);
     return res.status(500).json({ error: 'Failed to create room.' });
@@ -94,7 +97,12 @@ export const getRooms = async (req: AuthenticatedRequest, res: Response) => {
       },
     });
 
-    return res.status(200).json({ rooms });
+    const publicRooms = rooms.map((room) => {
+      const { passcode: _, ...safeRoom } = room as any;
+      return safeRoom;
+    });
+
+    return res.status(200).json({ rooms: publicRooms });
   } catch (error) {
     console.error('Get Rooms Error:', error);
     return res.status(500).json({ error: 'Failed to retrieve rooms.' });
@@ -125,12 +133,17 @@ export const getRoomById = async (req: AuthenticatedRequest, res: Response) => {
 
     // Passcode protection check
     if (!room.isPublic && room.hostId !== req.user?.id) {
-      if (room.passcode && room.passcode !== passcode) {
-        return res.status(403).json({ error: 'Invalid room passcode.', passcodeRequired: true });
+      if (room.passcode) {
+        const passcodeValue = String(passcode || '');
+        const isValid = await bcrypt.compare(passcodeValue, room.passcode);
+        if (!isValid) {
+          return res.status(403).json({ error: 'Invalid room passcode.', passcodeRequired: true });
+        }
       }
     }
 
-    return res.status(200).json({ room });
+    const { passcode: _, ...publicRoom } = room as any;
+    return res.status(200).json({ room: publicRoom });
   } catch (error) {
     console.error('Get Room Error:', error);
     return res.status(500).json({ error: 'Failed to load room details.' });
