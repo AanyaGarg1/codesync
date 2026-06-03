@@ -1,19 +1,23 @@
 'use client';
 
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState, useRef, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '@/store';
 
 export default function AuthGuard({ children }: { children: ReactNode }) {
   const { user, token, isAuthenticated, fetchMe, logout } = useAuthStore();
   const [isReady, setIsReady] = useState(false);
+  const hasInitialized = useRef(false);
   const router = useRouter();
 
   useEffect(() => {
+    if (hasInitialized.current) return; 
+    hasInitialized.current = true;  
     const initialize = async () => {
       if (!token) {
         logout();
         router.replace('/auth/login');
+        setIsReady(true);
         return;
       }
 
@@ -29,7 +33,7 @@ export default function AuthGuard({ children }: { children: ReactNode }) {
     };
 
     initialize();
-  }, [token, fetchMe, logout, router]);
+  }, [token]);
 
   if (!isReady || !isAuthenticated) {
     return (
