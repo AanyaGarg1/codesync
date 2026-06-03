@@ -81,19 +81,6 @@ PostgreSQL
 AI Integration
 AI-based interview evaluation and feedback generation
 Project Structure
-codesync-ai/
-│
-├── frontend/
-│   ├── src/
-│   ├── public/
-│   └── package.json
-│
-├── backend/
-│   ├── src/
-│   ├── prisma/
-│   └── package.json
-│
-└── README.md
 Installation
 Clone the repository
 git clone <repository-url>
