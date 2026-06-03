@@ -1,172 +1,260 @@
-CodeSync AI
+# CodeSync AI
 
-A collaborative coding interview platform built to simulate real technical interviews in a shared environment. The platform provides a real-time code editor, whiteboard, interview monitoring, session recording, and AI-assisted feedback generation.
+CodeSync AI is a collaborative coding interview platform designed to simulate real technical interviews in a shared environment. It combines a real-time code editor, collaborative whiteboard, interview monitoring tools, session tracking, and AI-powered feedback generation to create a complete interview experience for both interviewers and candidates.
 
-The goal of this project is to help interviewers conduct coding interviews efficiently while providing candidates with an experience similar to real-world technical interviews.
+The primary objective of this project is to provide an interactive and efficient platform for conducting coding interviews while maintaining transparency, collaboration, and detailed post-interview analysis.
 
-Features
-Authentication
-User registration and login
-Protected routes using authentication guards
-Session-based access control
-Real-Time Collaborative Coding
-Shared Monaco Editor
-Multiple users can work in the same room simultaneously
-Live synchronization using Socket.IO and Yjs
-Language switching support
-Interview Rooms
-Create and join interview rooms
-Interviewer and candidate roles
-Live participant tracking
-Session timer
-Whiteboard
-Collaborative drawing canvas
-Real-time synchronization
-Adjustable brush size and colors
-Interview Monitoring
-Interview start/end tracking
-Tab switch detection
-Focus loss monitoring
-Violation logging
-Timeline Tracking
+---
 
-Records important interview events such as:
+## Features
 
-Interview started
-Interview ended
-Tab switching events
-User activity updates
-AI Feedback
+### Authentication
+- User registration and login
+- Protected routes using authentication guards
+- Session-based access control
 
-After the interview:
+### Real-Time Collaborative Coding
+- Shared Monaco Editor
+- Multiple users can work simultaneously in the same room
+- Live synchronization using Socket.IO and Yjs
+- Multi-language coding support
 
-AI-generated interview summary
-Candidate performance analysis
-Strengths and weaknesses
-Overall rating
-Report Generation
+### Interview Rooms
+- Create and join interview rooms
+- Interviewer and candidate roles
+- Live participant tracking
+- Interview session timer
 
-Generate downloadable reports in:
+### Collaborative Whiteboard
+- Shared drawing canvas
+- Real-time synchronization
+- Adjustable brush colors and sizes
 
-JSON format
-PDF format
+### Interview Monitoring
+- Interview start and end tracking
+- Tab-switch detection
+- Browser focus monitoring
+- Violation logging
 
-Reports contain:
+### Timeline Tracking
+The platform records important interview events including:
+- Interview started
+- Interview ended
+- Tab switching events
+- User activity updates
 
-Interview details
-Problem statement
-Participants
-Timeline events
-Tab violations
-AI feedback
-Interviewer feedback
-Final code submission
-Tech Stack
-Frontend
-Next.js
-React
-TypeScript
-Tailwind CSS
-Monaco Editor
-Socket.IO Client
-Yjs
-Backend
-Node.js
-Express.js
-TypeScript
-Socket.IO
-Prisma ORM
-Database
-PostgreSQL
-AI Integration
-AI-based interview evaluation and feedback generation
-Project Structure
-Installation
-Clone the repository
+### AI Feedback Generation
+After each interview, the platform generates:
+- AI-generated interview summaries
+- Candidate performance analysis
+- Strengths and weaknesses
+- Overall performance ratings
+
+### Report Generation
+Download interview reports in:
+- JSON format
+- PDF format
+
+Reports include:
+- Interview details
+- Problem statement
+- Participant information
+- Timeline events
+- Tab-switch violations
+- AI feedback
+- Interviewer feedback
+- Final code submission
+
+---
+
+## Tech Stack
+
+### Frontend
+- Next.js
+- React
+- TypeScript
+- Tailwind CSS
+- Monaco Editor
+- Socket.IO Client
+- Yjs
+
+### Backend
+- Node.js
+- Express.js
+- TypeScript
+- Socket.IO
+- Prisma ORM
+
+### Database
+- PostgreSQL
+
+### AI Integration
+- AI-powered interview evaluation and feedback generation
+
+---
+
+## Project Structure
+
+```text
+codesync-ai/
+│
+├── frontend/
+│   ├── src/
+│   ├── public/
+│   └── package.json
+│
+├── backend/
+│   ├── src/
+│   ├── prisma/
+│   └── package.json
+│
+└── README.md
+```
+
+---
+
+## Installation
+
+### Clone the Repository
+
+```bash
 git clone <repository-url>
 cd codesync-ai
-Backend Setup
+```
+
+---
+
+## Backend Setup
+
+Navigate to the backend directory:
+
+```bash
 cd backend
-
 npm install
+```
 
-Create a .env file:
+Create a `.env` file:
 
+```env
 DATABASE_URL=your_database_url
 JWT_SECRET=your_secret_key
 PORT=5000
+```
 
 Run Prisma migrations:
 
+```bash
 npx prisma migrate dev
+```
 
 Start the backend server:
 
+```bash
 npm run dev
-Frontend Setup
+```
+
+---
+
+## Frontend Setup
+
+Navigate to the frontend directory:
+
+```bash
 cd frontend
-
 npm install
+```
 
-Create .env.local:
+Create a `.env.local` file:
 
+```env
 NEXT_PUBLIC_API_URL=http://localhost:5000
+```
 
-Start the frontend:
+Start the frontend application:
 
+```bash
 npm run dev
-Usage
-Creating an Interview
-Login to the platform
-Create a new interview room
-Share the room link with participants
-Start the interview session
-Monitor coding activity and whiteboard collaboration
-Conducting the Interview
-Discuss the problem statement
-Observe live coding progress
-Use the whiteboard when required
-Monitor tab-switch violations
-End the interview once completed
-Reviewing Results
+```
 
-After ending the session:
+---
 
-View AI-generated feedback
-Add interviewer comments
-Review timeline events
-Download PDF or JSON reports
-Future Improvements
+## Usage
 
-Some planned enhancements include:
+### Creating an Interview
 
-Room passwords
-Video/audio communication
-Code execution sandbox
-Plagiarism detection
-AI-generated interview questions
-Interview analytics dashboard
-Company-specific interview templates
-Recording and playback support
-Challenges Faced
+1. Login to the platform.
+2. Create a new interview room.
+3. Share the room link with participants.
+4. Start the interview session.
+5. Monitor coding activity and whiteboard collaboration.
 
-During development, some of the major challenges included:
+### Conducting the Interview
 
-Real-time synchronization conflicts
-Collaborative editor state management
-Socket disconnection handling
-Interview session persistence
-Generating structured interview reports
-Maintaining low-latency updates across multiple participants
-Learning Outcomes
+1. Discuss the problem statement.
+2. Observe live coding progress.
+3. Use the collaborative whiteboard when needed.
+4. Monitor tab-switch violations.
+5. End the interview session upon completion.
 
-This project provided hands-on experience with:
+### Reviewing Results
 
-Real-time systems
-WebSocket communication
-Collaborative editing
-Database design using Prisma
-Authentication and authorization
-Full-stack TypeScript development
-AI integration into web applications
-Aanya Garg
+After ending the interview:
+
+- View AI-generated feedback
+- Add interviewer comments
+- Review timeline events
+- Download PDF reports
+- Download JSON reports
+
+---
+
+## Future Improvements
+
+Planned enhancements include:
+
+- Room password protection
+- Integrated video and audio communication
+- Secure code execution sandbox
+- Plagiarism detection
+- AI-generated interview question recommendations
+- Advanced interview analytics dashboard
+- Company-specific interview templates
+- Session recording and playback
+
+---
+
+## Challenges Faced
+
+Some of the major challenges encountered during development were:
+
+- Real-time synchronization conflicts
+- Collaborative editor state management
+- Socket disconnection handling
+- Interview session persistence
+- Structured report generation
+- Maintaining low-latency communication between participants
+
+---
+
+## Learning Outcomes
+
+This project provided valuable experience in:
+
+- Real-time systems development
+- WebSocket communication
+- Collaborative application design
+- Database modeling using Prisma
+- Authentication and authorization workflows
+- Full-stack TypeScript development
+- AI integration within web applications
+
+---
+
+## Author
+
+**Aanya Garg**
+
+BS-MS Applied Mathematics and Scientific Computing  
+Indian Institute of Technology Roorkee
+
+---
