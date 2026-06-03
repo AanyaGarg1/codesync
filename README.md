@@ -1,75 +1,130 @@
 # CodeSync AI
 
-CodeSync AI is a collaborative coding interview platform designed to simulate real technical interviews in a shared environment. It combines a real-time code editor, collaborative whiteboard, interview monitoring tools, session tracking, and AI-powered feedback generation to create a complete interview experience for both interviewers and candidates.
+CodeSync AI is a collaborative coding interview platform designed to simulate real-world technical interviews in a shared environment. It combines a real-time collaborative code editor, whiteboard, interview monitoring tools, session tracking, timeline analysis, and AI-powered feedback generation to create a complete interview experience for both interviewers and candidates.
 
-The primary objective of this project is to provide an interactive and efficient platform for conducting coding interviews while maintaining transparency, collaboration, and detailed post-interview analysis.
+The goal of this project is to provide a smooth and transparent technical interview workflow while helping interviewers evaluate candidates effectively through live collaboration and automated reporting.
 
 ---
 
 ## Features
 
 ### Authentication
+
 - User registration and login
 - Protected routes using authentication guards
-- Session-based access control
+- Secure session-based access control
 
 ### Real-Time Collaborative Coding
+
 - Shared Monaco Editor
-- Multiple users can work simultaneously in the same room
-- Live synchronization using Socket.IO and Yjs
-- Multi-language coding support
+- Multiple users can code simultaneously
+- Real-time synchronization using Socket.IO and Yjs
+- Support for multiple programming languages
 
 ### Interview Rooms
+
 - Create and join interview rooms
-- Interviewer and candidate roles
+- Dedicated interviewer and candidate roles
 - Live participant tracking
 - Interview session timer
 
 ### Collaborative Whiteboard
-- Shared drawing canvas
-- Real-time synchronization
+
+- Real-time shared drawing canvas
 - Adjustable brush colors and sizes
+- Instant synchronization across users
 
 ### Interview Monitoring
+
 - Interview start and end tracking
-- Tab-switch detection
-- Browser focus monitoring
+- Browser tab-switch detection
+- Focus loss monitoring
 - Violation logging
 
 ### Timeline Tracking
-The platform records important interview events including:
+
+Records important interview events including:
+
 - Interview started
 - Interview ended
-- Tab switching events
+- Tab-switch violations
 - User activity updates
 
 ### AI Feedback Generation
-After each interview, the platform generates:
-- AI-generated interview summaries
+
+After an interview, the platform generates:
+
+- AI-generated interview summary
 - Candidate performance analysis
 - Strengths and weaknesses
-- Overall performance ratings
+- Overall rating and feedback
 
 ### Report Generation
-Download interview reports in:
-- JSON format
-- PDF format
 
-Reports include:
+Export interview reports in:
+
+- PDF format
+- JSON format
+
+Reports contain:
+
 - Interview details
 - Problem statement
 - Participant information
 - Timeline events
 - Tab-switch violations
-- AI feedback
+- AI-generated feedback
 - Interviewer feedback
 - Final code submission
+
+---
+
+# Screenshots
+
+## Front Page
+
+![Front Page](screenshots/frontpage.png)
+
+The landing page introduces the platform and provides authentication options for users.
+
+---
+
+## Dashboard
+
+![Dashboard](screenshots/dashboard.png)
+
+The dashboard allows users to create interview rooms, manage sessions, and view interview analytics.
+
+---
+
+## Interview Room
+
+![Interview Room](screenshots/room.png)
+
+A real-time collaborative coding environment featuring Monaco Editor, participant tracking, chat, and synchronized editing.
+
+---
+
+## Interview Timeline
+
+![Timeline](screenshots/timeline.png)
+
+Tracks important interview events such as session start, session end, and tab-switch violations.
+
+---
+
+## Generated Report
+
+![Generated Report](screenshots/report.png)
+
+Professional PDF reports containing AI feedback, interviewer comments, ratings, timeline events, and interview summaries.
 
 ---
 
 ## Tech Stack
 
 ### Frontend
+
 - Next.js
 - React
 - TypeScript
@@ -79,6 +134,7 @@ Reports include:
 - Yjs
 
 ### Backend
+
 - Node.js
 - Express.js
 - TypeScript
@@ -86,9 +142,11 @@ Reports include:
 - Prisma ORM
 
 ### Database
+
 - PostgreSQL
 
 ### AI Integration
+
 - AI-powered interview evaluation and feedback generation
 
 ---
@@ -101,12 +159,21 @@ codesync-ai/
 ├── frontend/
 │   ├── src/
 │   ├── public/
-│   └── package.json
+│   ├── package.json
+│   └── .env.local
 │
 ├── backend/
 │   ├── src/
 │   ├── prisma/
-│   └── package.json
+│   ├── package.json
+│   └── .env
+│
+├── screenshots/
+│   ├── frontpage.png
+│   ├── dashboard.png
+│   ├── room.png
+│   ├── timeline.png
+│   └── report.png
 │
 └── README.md
 ```
@@ -192,9 +259,9 @@ npm run dev
 
 1. Discuss the problem statement.
 2. Observe live coding progress.
-3. Use the collaborative whiteboard when needed.
+3. Use the collaborative whiteboard when required.
 4. Monitor tab-switch violations.
-5. End the interview session upon completion.
+5. End the interview session.
 
 ### Reviewing Results
 
@@ -232,29 +299,33 @@ Some of the major challenges encountered during development were:
 - Socket disconnection handling
 - Interview session persistence
 - Structured report generation
-- Maintaining low-latency communication between participants
+- Maintaining low-latency communication across participants
 
 ---
 
 ## Learning Outcomes
 
-This project provided valuable experience in:
+This project provided practical experience in:
 
 - Real-time systems development
 - WebSocket communication
 - Collaborative application design
 - Database modeling using Prisma
-- Authentication and authorization workflows
+- Authentication and authorization
 - Full-stack TypeScript development
-- AI integration within web applications
+- AI integration into web applications
+- Report generation and session analytics
 
 ---
 
 ## Author
 
-**Aanya Garg**
-
+**Aanya Garg**  
 BS-MS Applied Mathematics and Scientific Computing  
 Indian Institute of Technology Roorkee
 
 ---
+
+## License
+
+This project is developed for educational, research, and learning purposes.
