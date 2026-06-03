@@ -231,7 +231,7 @@ function WhiteboardPanel({ roomId, socket }: { roomId: string; socket: any }) {
   const [color, setColor] = useState('#a78bfa');
   const [size, setSize] = useState(3);
   const lastPos = useRef<{ x: number; y: number } | null>(null);
-
+  
   const draw = useCallback((x: number, y: number, color: string, size: number, fromX?: number, fromY?: number) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -351,6 +351,14 @@ export default function RoomPage() {
   const [isInterviewer, setIsInterviewer] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [tabViolations, setTabViolations] = useState<TabViolation[]>([]);
+  const [timeline, setTimeline] = useState<Array<{
+  type: 'TAB_SWITCH' | 'INTERVIEW_START' | 'INTERVIEW_END';
+  timestamp: number;
+  duration?: number;
+  userId?: string;
+  userName?: string;
+  reason?: string;
+}>>([]);
   const [showViolationBanner, setShowViolationBanner] = useState(false);
   const [aiStatus, setAiStatus] = useState<'ready' | 'fallback' | 'unavailable'>('ready');
   const [feedbackForm, setFeedbackForm] = useState<InterviewFeedbackForm>({ communication: 3, problemSolving: 3, codingSkills: 3, dsaKnowledge: 3, comments: '' });
@@ -449,7 +457,7 @@ export default function RoomPage() {
     }
     s.on('connect', joinRoom);
 
-    s.on('room-state', ({ language: l, users, interviewState, tabViolations: violations, aiStatus: status, currentSessionId }: any) => {
+    s.on('room-state', ({ language: l, users, interviewState, tabViolations: violations, aiStatus: status, currentSessionId , timeline: tl}: any) => {
       if (l) setLanguage(l);
       if (users) setUsers(users);
       if (interviewState) {
@@ -460,8 +468,16 @@ export default function RoomPage() {
       if (violations) setTabViolations(violations);
       if (status) setAiStatus(status);
       if (currentSessionId) setSessionId(currentSessionId);
+      if (tl) setTimeline(tl);
     });
-
+s.on('timeline-update', (tl: Array<{
+  type: 'TAB_SWITCH' | 'INTERVIEW_START' | 'INTERVIEW_END';
+  timestamp: number;
+  duration?: number;
+  userId?: string;
+  userName?: string;
+  reason?: string;
+}>) => setTimeline(tl));
     s.on('yjs-sync', (update: ArrayBuffer) => {
       const ydoc = yDocRef.current;
       if (!ydoc) return;
@@ -516,6 +532,7 @@ export default function RoomPage() {
       s.off('interview-session');
       s.off('violation-update');
       s.off('tab-violations');
+      s.off('timeline-update');
       s.off('ai-status');
     };
   }, [room, user]);
@@ -705,52 +722,267 @@ export default function RoomPage() {
     anchor.remove();
     URL.revokeObjectURL(url);
   };
+const downloadPdfReport = async () => {
+  try {
+    const { jsPDF } = await import('jspdf');
 
-  const downloadPdfReport = async () => {
-    try {
-      const { jsPDF } = await import('jspdf');
-      const doc = new jsPDF({ unit: 'pt', format: 'a4' });
-      const lines = [
-        'CodeSync AI Interview Report',
-        `Room: ${room?.name || 'N/A'}`,
-        `Host: ${room?.host?.name || 'N/A'}`,
-        `Problem: ${problemDescription || 'N/A'}`,
-        `Duration: ${formatTimer(timer)}`,
-        `Participants: ${connectedUsers.map((u) => u.name).join(', ')}`,
-        `Violations: ${tabViolations.length}`,
-        '',
-        'AI Feedback',
-        feedbackData?.text || 'No AI feedback available.',
-        '',
-        'Interviewer Feedback',
-        feedbackForm.comments || 'No manual feedback provided.',
-        '',
-        'Ratings',
-        `Communication: ${feedbackForm.communication}`,
-        `Problem Solving: ${feedbackForm.problemSolving}`,
-        `Coding Skills: ${feedbackForm.codingSkills}`,
-        `DSA Knowledge: ${feedbackForm.dsaKnowledge}`,
-      ];
-      let y = 40;
-      doc.setFontSize(16);
-      doc.text(lines[0], 40, y);
-      y += 30;
-      doc.setFontSize(11);
-      lines.slice(1).forEach((line) => {
-        if (y > 760) {
-          doc.addPage();
-          y = 40;
-        }
-        doc.text(String(line), 40, y);
-        y += 18;
+    const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+
+    const PAGE_WIDTH = 595.28;
+    const PAGE_HEIGHT = 841.89;
+    const MARGIN = 48;
+    const CONTENT_WIDTH = PAGE_WIDTH - MARGIN * 2;
+    const BOTTOM_LIMIT = PAGE_HEIGHT - 60;
+
+    let y = MARGIN;
+
+    // ─── Helpers ────────────────────────────────────────────────────────────
+
+    const checkPageBreak = (neededHeight = 20) => {
+      if (y + neededHeight > BOTTOM_LIMIT) {
+        doc.addPage();
+        y = MARGIN;
+      }
+    };
+
+    const addText = (text, fontSize = 11, color = [30, 30, 30], bold = false) => {
+      doc.setFontSize(fontSize);
+      doc.setTextColor(...color);
+      doc.setFont('helvetica', bold ? 'bold' : 'normal');
+      const lines = doc.splitTextToSize(String(text || ''), CONTENT_WIDTH);
+      lines.forEach((line) => {
+        checkPageBreak(fontSize + 4);
+        doc.text(line, MARGIN, y);
+        y += fontSize + 4;
       });
-      doc.save(`codesync-interview-report-${roomId}.pdf`);
-    } catch (err) {
-      console.error('PDF generation failed', err);
-      alert('Failed to generate PDF report.');
-    }
-  };
+    };
 
+    const addWrappedText = (text, fontSize = 10, lineGap = 5) => {
+      doc.setFontSize(fontSize);
+      doc.setTextColor(50, 50, 50);
+      doc.setFont('helvetica', 'normal');
+      const lines = doc.splitTextToSize(String(text || 'N/A'), CONTENT_WIDTH);
+      lines.forEach((line) => {
+        checkPageBreak(fontSize + lineGap);
+        doc.text(line, MARGIN, y);
+        y += fontSize + lineGap;
+      });
+    };
+
+    const addSectionHeader = (title) => {
+      y += 14; // space before section
+      checkPageBreak(34);
+      // Accent bar
+      doc.setFillColor(37, 99, 235); // blue-600
+      doc.rect(MARGIN, y - 13, 4, 18, 'F');
+      doc.setFontSize(13);
+      doc.setTextColor(15, 23, 42);
+      doc.setFont('helvetica', 'bold');
+      doc.text(title, MARGIN + 10, y);
+      y += 8;
+      // Underline
+      doc.setDrawColor(200, 210, 230);
+      doc.setLineWidth(0.5);
+      doc.line(MARGIN, y, PAGE_WIDTH - MARGIN, y);
+      y += 12;
+    };
+
+    const addKeyValue = (label, value) => {
+      checkPageBreak(18);
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(80, 90, 110);
+      doc.text(`${label}:`, MARGIN, y);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(30, 30, 30);
+      const valLines = doc.splitTextToSize(String(value || 'N/A'), CONTENT_WIDTH - 120);
+      doc.text(valLines[0], MARGIN + 120, y);
+      y += 16;
+      // If value wrapped, print remaining lines
+      valLines.slice(1).forEach((line) => {
+        checkPageBreak(16);
+        doc.text(line, MARGIN + 120, y);
+        y += 16;
+      });
+    };
+
+    // ─── HEADER BANNER ──────────────────────────────────────────────────────
+    doc.setFillColor(15, 23, 42); // dark navy
+    doc.rect(0, 0, PAGE_WIDTH, 80, 'F');
+
+    doc.setFontSize(22);
+    doc.setTextColor(255, 255, 255);
+    doc.setFont('helvetica', 'bold');
+    doc.text('CodeSync AI', MARGIN, 38);
+
+    doc.setFontSize(11);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(148, 163, 184);
+    doc.text('Interview Assessment Report', MARGIN, 58);
+
+    // Date top-right
+    const dateStr = new Date().toLocaleDateString('en-IN', {
+      day: '2-digit', month: 'short', year: 'numeric',
+    });
+    doc.setFontSize(9);
+    doc.setTextColor(148, 163, 184);
+    doc.text(dateStr, PAGE_WIDTH - MARGIN, 58, { align: 'right' });
+
+    y = 100;
+
+    // ─── CANDIDATE & SESSION DETAILS ────────────────────────────────────────
+    addSectionHeader('Interview Details');
+    addKeyValue('Room', room?.name);
+    addKeyValue('Host / Interviewer', room?.host?.name);
+    addKeyValue('Candidate(s)', connectedUsers.map((u) => u.name).join(', '));
+    addKeyValue('Duration', formatTimer(timer));
+    addKeyValue('Room ID', roomId);
+    addKeyValue('Tab Violations', tabViolations.length);
+
+    // ─── PROBLEM STATEMENT ──────────────────────────────────────────────────
+    addSectionHeader('Problem Statement');
+    addWrappedText(problemDescription || 'No problem description provided.');
+
+    // ─── AI FEEDBACK ────────────────────────────────────────────────────────
+    addSectionHeader('AI Feedback');
+    addWrappedText(feedbackData?.text || 'No AI feedback available.');
+
+    // ─── INTERVIEWER FEEDBACK ───────────────────────────────────────────────
+    addSectionHeader('Interviewer Feedback');
+    addWrappedText(feedbackForm.comments || 'No manual feedback provided.');
+
+    // ─── RATINGS TABLE ──────────────────────────────────────────────────────
+    addSectionHeader('Ratings');
+
+    const ratings = [
+      { label: 'Communication',   score: feedbackForm.communication  },
+      { label: 'Problem Solving', score: feedbackForm.problemSolving },
+      { label: 'Coding Skills',   score: feedbackForm.codingSkills   },
+      { label: 'DSA Knowledge',   score: feedbackForm.dsaKnowledge   },
+    ];
+
+    const COL1 = MARGIN;
+    const COL2 = MARGIN + 160;
+    const COL3 = MARGIN + 280;
+    const ROW_H = 24;
+
+    // Table header
+    checkPageBreak(ROW_H + 4);
+    doc.setFillColor(241, 245, 249);
+    doc.rect(COL1, y - 14, CONTENT_WIDTH, ROW_H, 'F');
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(60, 80, 120);
+    doc.text('Category', COL1 + 8, y);
+    doc.text('Score', COL2 + 8, y);
+    doc.text('Visual', COL3 + 8, y);
+    y += ROW_H - 6;
+
+    // Table rows
+    ratings.forEach(({ label, score }, i) => {
+      checkPageBreak(ROW_H);
+      const rowY = y;
+
+      // Alternating row bg
+      if (i % 2 === 0) {
+        doc.setFillColor(250, 252, 255);
+        doc.rect(COL1, rowY - 14, CONTENT_WIDTH, ROW_H, 'F');
+      }
+
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(30, 30, 30);
+      doc.setFontSize(10);
+      doc.text(label, COL1 + 8, rowY);
+
+      const numScore = Number(score) || 0;
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(37, 99, 235);
+      doc.text(`${numScore} / 10`, COL2 + 8, rowY);
+
+      // Progress bar
+      const BAR_W = 120;
+      const BAR_H = 7;
+      const barX = COL3 + 8;
+      const barY = rowY - 8;
+      doc.setFillColor(220, 230, 245);
+      doc.roundedRect(barX, barY, BAR_W, BAR_H, 3, 3, 'F');
+      const filled = (numScore / 10) * BAR_W;
+      doc.setFillColor(37, 99, 235);
+      if (filled > 0) doc.roundedRect(barX, barY, filled, BAR_H, 3, 3, 'F');
+
+      // Row border
+      doc.setDrawColor(220, 230, 245);
+      doc.setLineWidth(0.3);
+      doc.line(COL1, rowY + 8, PAGE_WIDTH - MARGIN, rowY + 8);
+
+      y += ROW_H;
+    });
+
+    y += 8;
+
+    // ─── FINAL CODE ─────────────────────────────────────────────────────────
+    if (code) {
+      addSectionHeader('Final Code Submission');
+      checkPageBreak(20);
+
+      // Code block background
+      const codeLines = doc.splitTextToSize(String(code), CONTENT_WIDTH - 16);
+      const blockHeight = Math.min(codeLines.length * 13 + 16, BOTTOM_LIMIT - y);
+
+      doc.setFillColor(248, 250, 252);
+      doc.setDrawColor(200, 215, 230);
+      doc.setLineWidth(0.5);
+      doc.roundedRect(MARGIN, y, CONTENT_WIDTH, blockHeight, 4, 4, 'FD');
+
+      y += 12;
+      doc.setFontSize(9);
+      doc.setFont('courier', 'normal');
+      doc.setTextColor(30, 60, 90);
+
+      codeLines.forEach((line) => {
+        checkPageBreak(13);
+        doc.text(line, MARGIN + 8, y);
+        y += 13;
+      });
+      y += 8;
+    }
+
+    // ─── TIMELINE / VIOLATIONS ──────────────────────────────────────────────
+    if (tabViolations.length > 0) {
+      addSectionHeader('Violation Timeline');
+      tabViolations.forEach((v, i) => {
+        checkPageBreak(18);
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(220, 38, 38); // red
+        doc.text(`${i + 1}.`, MARGIN, y);
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(50, 50, 50);
+        const detail = typeof v === 'string' ? v : v?.message || v?.type || JSON.stringify(v);
+        const vLines = doc.splitTextToSize(detail, CONTENT_WIDTH - 20);
+        doc.text(vLines, MARGIN + 18, y);
+        y += vLines.length * 14 + 4;
+      });
+    }
+
+    // ─── FOOTER ON EVERY PAGE ───────────────────────────────────────────────
+    const totalPages = doc.internal.getNumberOfPages();
+    for (let p = 1; p <= totalPages; p++) {
+      doc.setPage(p);
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(160, 170, 185);
+      doc.line(MARGIN, PAGE_HEIGHT - 40, PAGE_WIDTH - MARGIN, PAGE_HEIGHT - 40);
+      doc.text('CodeSync AI — Confidential Interview Report', MARGIN, PAGE_HEIGHT - 26);
+      doc.text(`Page ${p} of ${totalPages}`, PAGE_WIDTH - MARGIN, PAGE_HEIGHT - 26, { align: 'right' });
+    }
+
+    doc.save(`codesync-interview-report-${roomId}.pdf`);
+  } catch (err) {
+    console.error('PDF generation failed', err);
+    alert('Failed to generate PDF report.');
+  }
+};
   const formatTimer = (s: number) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 
   if (loading) return (
@@ -875,12 +1107,16 @@ export default function RoomPage() {
           <div className="flex items-center gap-3">
             <span className="text-xs font-semibold text-violet-400 uppercase tracking-wider">Problem</span>
             <input
-              value={problemDescription}
-              onChange={(e) => setProblemDescription(e.target.value)}
-              placeholder="Describe the interview problem here (e.g. Two Sum, Longest Substring without Repeating Characters)..."
-              readOnly={!isInterviewer}
-              className="flex-1 bg-transparent border-none outline-none text-sm text-white placeholder-[var(--text-muted)] disabled:text-[var(--text-muted)] disabled:cursor-not-allowed"
-            />
+  value={problemDescription}
+  onChange={(e) => {
+    if (!isInterviewer) return;
+    setProblemDescription(e.target.value);
+    socket?.emit('interview-update', { roomId, problemDescription: e.target.value });
+  }}
+  placeholder="Describe the interview problem here (e.g. Two Sum, Longest Substring without Repeating Characters)..."
+  readOnly={!isInterviewer}
+  className="flex-1 bg-transparent border-none outline-none text-sm text-white placeholder-[var(--text-muted)] disabled:text-[var(--text-muted)] disabled:cursor-not-allowed"
+/>
           </div>
           <div className="grid grid-cols-2 gap-3 text-[var(--text-muted)] text-xs">
             <div className="flex items-center gap-2">
@@ -971,86 +1207,161 @@ export default function RoomPage() {
 
       {/* Interview Feedback Modal */}
       {showInterviewFeedback && feedbackData && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm px-4 py-6">
-          <div className="glass-elevated rounded-2xl p-8 w-full max-w-xl border border-violet-600/30 space-y-6">
-            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-              <div>
-                <h2 className="text-2xl font-black">🎯 Interview Feedback</h2>
-                <p className="text-sm text-[var(--text-muted)] mt-1">Review AI insight, add interviewer notes, and export the session report.</p>
-              </div>
-              <div className="text-4xl font-black gradient-text">
-                {feedbackData.rating?.toFixed(1) ?? 'N/A'}
-                <span className="text-lg text-[var(--text-secondary)]">/5</span>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <div className="text-sm font-semibold uppercase tracking-wide text-[var(--text-muted)]">AI feedback</div>
-              <div className="prose-dark text-sm whitespace-pre-wrap leading-relaxed bg-[var(--bg-card)] rounded-xl p-4 max-h-64 overflow-auto">
-                {feedbackData.text || 'No AI feedback available.'}
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <div className="text-sm font-semibold uppercase tracking-wide text-[var(--text-muted)]">Interviewer feedback</div>
-                <button
-                  type="button"
-                  onClick={() => setShowManualFeedback((prev) => !prev)}
-                  className="text-xs uppercase tracking-wide text-violet-300 hover:text-white"
-                >
-                  {showManualFeedback ? 'Hide notes' : 'Add notes'}
-                </button>
-              </div>
-              {showManualFeedback && (
-                <div className="space-y-4 bg-[var(--bg-card)] rounded-xl p-4 border border-[var(--border)]">
-                  <div className="grid grid-cols-2 gap-3">
-                    {(['communication', 'problemSolving', 'codingSkills', 'dsaKnowledge'] as const).map((field) => (
-                      <label key={field} className="block text-xs text-[var(--text-muted)]">
-                        <span className="block mb-1 capitalize">{field.replace(/([A-Z])/g, ' $1')}</span>
-                        <input
-                          type="range"
-                          min={1}
-                          max={5}
-                          value={feedbackForm[field]}
-                          onChange={(event) => setFeedbackForm((prev) => ({ ...prev, [field]: Number(event.target.value) }))}
-                          className="w-full"
-                        />
-                        <div className="text-xs text-[var(--text-secondary)]">{feedbackForm[field]}</div>
-                      </label>
-                    ))}
-                  </div>
-                  <div>
-                    <label className="block text-xs text-[var(--text-muted)] mb-2">Comments</label>
-                    <textarea
-                      value={feedbackForm.comments}
-                      onChange={(event) => setFeedbackForm((prev) => ({ ...prev, comments: event.target.value }))}
-                      placeholder="Add interviewer observations, strengths, and improvement areas..."
-                      rows={4}
-                      className="input-field w-full resize-none"
-                    />
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleSaveInterviewerFeedback}
-                    disabled={fetchingFeedback}
-                    className="btn-primary w-full py-3"
-                  >
-                    {fetchingFeedback ? 'Saving...' : 'Save interviewer feedback'}
-                  </button>
-                </div>
-              )}
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <button onClick={downloadJsonReport} className="btn-secondary py-3 w-full">Download JSON Report</button>
-              <button onClick={downloadPdfReport} className="btn-secondary py-3 w-full">Download PDF Report</button>
-            </div>
-
-            <button onClick={() => setShowInterviewFeedback(false)} className="btn-primary w-full py-3">Close</button>
-          </div>
+  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm px-4 py-6">
+    <div className="glass-elevated rounded-2xl p-8 w-full max-w-2xl border border-violet-600/30 space-y-6 max-h-[90vh] overflow-y-auto">
+      
+      {/* Header */}
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h2 className="text-2xl font-black">🎯 Interview Feedback</h2>
+          <p className="text-sm text-[var(--text-muted)] mt-1">
+            Review AI insight, add interviewer notes, and export the session report.
+          </p>
         </div>
-      )}
+        <div className="text-4xl font-black gradient-text">
+          {feedbackData.rating?.toFixed(1) ?? 'N/A'}
+          <span className="text-lg text-[var(--text-secondary)]">/5</span>
+        </div>
+      </div>
+
+      {/* AI Feedback */}
+      <div className="space-y-4">
+        <div className="text-sm font-semibold uppercase tracking-wide text-[var(--text-muted)]">AI feedback</div>
+        <div className="prose-dark text-sm whitespace-pre-wrap leading-relaxed bg-[var(--bg-card)] rounded-xl p-4 max-h-48 overflow-auto">
+          {feedbackData.text || 'No AI feedback available.'}
+        </div>
+      </div>
+
+      {/* Interview Timeline */}
+      <div className="space-y-3">
+        <div className="text-sm font-semibold uppercase tracking-wide text-[var(--text-muted)]">
+          Interview Timeline
+          <span className="ml-2 text-xs font-normal text-[var(--text-muted)] normal-case">
+            ({timeline.length} event{timeline.length !== 1 ? 's' : ''})
+          </span>
+        </div>
+
+        {timeline.length === 0 ? (
+          <div className="text-xs text-[var(--text-muted)] bg-[var(--bg-card)] rounded-xl p-4 text-center">
+            No timeline events recorded.
+          </div>
+        ) : (
+          <div className="relative bg-[var(--bg-card)] rounded-xl p-4 max-h-52 overflow-y-auto space-y-0">
+            {/* Vertical line */}
+            <div className="absolute left-[27px] top-4 bottom-4 w-px bg-[var(--border)]" />
+
+            {timeline.map((event, i) => {
+              const isTabSwitch   = event.type === 'TAB_SWITCH';
+              const isStart       = event.type === 'INTERVIEW_START';
+              const isEnd         = event.type === 'INTERVIEW_END';
+
+              const dotColor = isTabSwitch ? 'bg-rose-500' : isStart ? 'bg-emerald-500' : 'bg-violet-500';
+              const label    = isStart
+                ? '▶ Interview started'
+                : isEnd
+                ? '⏹ Interview ended'
+                : `⚠ Tab switch — ${event.reason || 'focus lost'}`;
+
+              const timeLabel = new Date(event.timestamp).toLocaleTimeString([], {
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+              });
+
+              return (
+                <div key={i} className="flex items-start gap-3 py-2 relative">
+                  {/* Dot */}
+                  <div className={`w-3 h-3 rounded-full flex-shrink-0 mt-0.5 z-10 ring-2 ring-[var(--bg-card)] ${dotColor}`} />
+
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <span className={`text-xs font-medium ${isTabSwitch ? 'text-rose-300' : isStart ? 'text-emerald-300' : 'text-violet-300'}`}>
+                        {label}
+                      </span>
+                      <span className="text-[10px] text-[var(--text-muted)] font-mono flex-shrink-0">{timeLabel}</span>
+                    </div>
+
+                    {/* Sub-details for tab switches */}
+                    {isTabSwitch && (
+                      <div className="flex items-center gap-3 mt-0.5 text-[10px] text-[var(--text-muted)]">
+                        {event.userName && <span>👤 {event.userName}</span>}
+                        {event.duration != null && event.duration > 0 && (
+                          <span>⏱ away {(event.duration / 1000).toFixed(1)}s</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Interviewer Feedback */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-sm font-semibold uppercase tracking-wide text-[var(--text-muted)]">
+            Interviewer feedback
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowManualFeedback((prev) => !prev)}
+            className="text-xs uppercase tracking-wide text-violet-300 hover:text-white"
+          >
+            {showManualFeedback ? 'Hide notes' : 'Add notes'}
+          </button>
+        </div>
+        {showManualFeedback && (
+          <div className="space-y-4 bg-[var(--bg-card)] rounded-xl p-4 border border-[var(--border)]">
+            <div className="grid grid-cols-2 gap-3">
+              {(['communication', 'problemSolving', 'codingSkills', 'dsaKnowledge'] as const).map((field) => (
+                <label key={field} className="block text-xs text-[var(--text-muted)]">
+                  <span className="block mb-1 capitalize">{field.replace(/([A-Z])/g, ' $1')}</span>
+                  <input
+                    type="range"
+                    min={1}
+                    max={5}
+                    value={feedbackForm[field]}
+                    onChange={(event) => setFeedbackForm((prev) => ({ ...prev, [field]: Number(event.target.value) }))}
+                    className="w-full"
+                  />
+                  <div className="text-xs text-[var(--text-secondary)]">{feedbackForm[field]}</div>
+                </label>
+              ))}
+            </div>
+            <div>
+              <label className="block text-xs text-[var(--text-muted)] mb-2">Comments</label>
+              <textarea
+                value={feedbackForm.comments}
+                onChange={(event) => setFeedbackForm((prev) => ({ ...prev, comments: event.target.value }))}
+                placeholder="Add interviewer observations, strengths, and improvement areas..."
+                rows={4}
+                className="input-field w-full resize-none"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={handleSaveInterviewerFeedback}
+              disabled={fetchingFeedback}
+              className="btn-primary w-full py-3"
+            >
+              {fetchingFeedback ? 'Saving...' : 'Save interviewer feedback'}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Export */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <button onClick={downloadJsonReport} className="btn-secondary py-3 w-full">Download JSON Report</button>
+        <button onClick={downloadPdfReport} className="btn-secondary py-3 w-full">Download PDF Report</button>
+      </div>
+
+      <button onClick={() => setShowInterviewFeedback(false)} className="btn-primary w-full py-3">Close</button>
+    </div>
+  </div>
+)}
     </div>
     </AuthGuard>
   );
