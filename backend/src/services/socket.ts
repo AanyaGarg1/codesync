@@ -18,7 +18,14 @@ interface InterviewState {
   problemDescription: string;
   hostId: string;
 }
-
+interface TimelineEvent {
+  type: 'TAB_SWITCH' | 'INTERVIEW_START' | 'INTERVIEW_END';
+  timestamp: number;
+  duration?: number;
+  userId?: string;
+  userName?: string;
+  reason?: string;
+}
 interface ActiveRoomState {
   hostId: string;
   users: Record<string, UserPresence>;
@@ -31,6 +38,7 @@ interface ActiveRoomState {
   clientAwarenessIds: Record<string, number>;
   currentSessionId?: string;
   tabViolations: Array<{ timestamp: number; durationMs: number; userId: string; userName: string; reason: string }>;
+  timeline: TimelineEvent[];  // ← ADD THIS
   aiStatus: 'ready' | 'fallback' | 'unavailable';
 }
 
@@ -62,6 +70,7 @@ const createRoomState = (roomId: string, roomDb: any) => {
     clientAwarenessIds: {},
     currentSessionId: undefined,
     tabViolations: [],
+    timeline: [],
     aiStatus,
   };
 };
@@ -103,6 +112,7 @@ export const setupSocketIO = (io: Server) => {
         interviewState: activeRooms[roomId].interviewState,
         hostId: activeRooms[roomId].hostId,
         tabViolations: activeRooms[roomId].tabViolations,
+        timeline: activeRooms[roomId].timeline,
         aiStatus: activeRooms[roomId].aiStatus,
         currentSessionId: activeRooms[roomId].currentSessionId,
       });
@@ -166,7 +176,11 @@ export const setupSocketIO = (io: Server) => {
       room.interviewState.active = true;
       room.interviewState.startedAt = Date.now();
       room.interviewState.problemDescription = problemDescription || room.interviewState.problemDescription;
-
+      room.timeline.push({
+  type: 'INTERVIEW_START',
+  timestamp: room.interviewState.startedAt,
+});
+io.to(roomId).emit('timeline-update', room.timeline);
       try {
         const session = await prisma.roomSession.create({
           data: {
@@ -210,7 +224,15 @@ export const setupSocketIO = (io: Server) => {
       }
       room.interviewState.active = false;
       const endedAt = Date.now();
-      const durationSeconds = room.interviewState.startedAt ? Math.floor((endedAt - room.interviewState.startedAt) / 1000) : 0;
+      room.timeline.push({
+  type: 'INTERVIEW_END',
+  timestamp: endedAt,
+});
+io.to(roomId).emit('timeline-update', room.timeline);
+
+const durationSeconds = room.interviewState.startedAt
+  ? Math.floor((endedAt - room.interviewState.startedAt) / 1000)
+  : 0;
 
       if (room.currentSessionId) {
         try {
@@ -224,10 +246,12 @@ export const setupSocketIO = (io: Server) => {
               participants: JSON.stringify(Object.values(room.users).map((u) => ({ id: u.userId, name: u.name }))),
               chatMessages: JSON.stringify(room.chatHistory),
               tabViolations: JSON.stringify(room.tabViolations || []),
+              
               reportJson: JSON.stringify({
                 problemStatement: room.interviewState.problemDescription,
                 participants: Object.values(room.users).map((u) => ({ id: u.userId, name: u.name })),
                 violations: room.tabViolations,
+                timeline: room.timeline,
               }),
             },
           });
@@ -277,21 +301,36 @@ export const setupSocketIO = (io: Server) => {
       }
     });
 
-    socket.on('tab-violation', ({ roomId, reason, durationMs }) => {
-      if (!activeRooms[roomId]) return;
-      const room = activeRooms[roomId];
-      const user = room.users[socket.id];
-      if (!user) return;
-      const violation = {
-        timestamp: Date.now(),
-        durationMs: Number(durationMs) || 0,
-        userId: user.userId,
-        userName: user.name,
-        reason: reason || 'Browser focus lost',
-      };
-      room.tabViolations.push(violation);
-      io.to(roomId).emit('violation-update', { count: room.tabViolations.length, violation });
-    });
+socket.on('tab-violation', ({ roomId, reason, durationMs }) => {
+  if (!activeRooms[roomId]) return;
+  const room = activeRooms[roomId];
+  const user = room.users[socket.id];
+  if (!user) return;
+
+  const now = Date.now();
+
+  const violation = {
+    timestamp: now,
+    durationMs: Number(durationMs) || 0,
+    userId: user.userId,
+    userName: user.name,
+    reason: reason || 'Browser focus lost',
+  };
+  room.tabViolations.push(violation);
+
+  const timelineEvent: TimelineEvent = {
+    type: 'TAB_SWITCH',
+    timestamp: now,
+    duration: Number(durationMs) || 0,
+    userId: user.userId,
+    userName: user.name,
+    reason: reason || 'Browser focus lost',
+  };
+  room.timeline.push(timelineEvent);
+
+  io.to(roomId).emit('violation-update', { count: room.tabViolations.length, violation });
+  io.to(roomId).emit('timeline-update', room.timeline);  // ← ADD THIS
+});
 
     socket.on('disconnect', async () => {
       console.log(`Socket disconnected: ${socket.id}`);
