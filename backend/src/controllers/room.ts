@@ -97,7 +97,7 @@ export const getRooms = async (req: AuthenticatedRequest, res: Response) => {
       },
     });
 
-    const publicRooms = rooms.map((room) => {
+    const publicRooms = rooms.map((room:any) => {
       const { passcode: _, ...safeRoom } = room as any;
       return safeRoom;
     });
