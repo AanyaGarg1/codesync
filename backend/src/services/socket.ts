@@ -81,17 +81,18 @@ export const setupSocketIO = (io: Server) => {
 
     socket.on('join-room', async ({ roomId, userId, name, avatarUrl, awarenessClientId }) => {
       socket.join(roomId);
+if (!activeRooms[roomId]) {
+  try {
+    const roomDb = await prisma.room.findUnique({
+      where: { id: roomId },
+    });
 
-      if (!activeRooms[roomId]) {
-        let roomDb = null;
-        try {
-          roomDb = await prisma.room.findUnique({ where: { id: roomId } });
-        } catch (e) {
-          console.error('Failed to load room from db on socket join:', e);
-        }
-
-        activeRooms[roomId] = createRoomState(roomId, roomDb);
-      }
+    activeRooms[roomId] = createRoomState(roomId, roomDb);
+  } catch (e) {
+    console.error("Failed to load room from db on socket join:", e);
+    activeRooms[roomId] = createRoomState(roomId, null);
+  }
+}
 
       if (typeof awarenessClientId === 'number') {
         activeRooms[roomId].clientAwarenessIds[socket.id] = awarenessClientId;
