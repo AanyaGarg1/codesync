@@ -4,6 +4,8 @@ CodeSync AI is a collaborative coding interview platform designed to simulate re
 
 The goal of this project is to provide a smooth and transparent technical interview workflow while helping interviewers evaluate candidates effectively through live collaboration and automated reporting.
 
+Deployed on vercel link-https://codesync-frontend-six.vercel.app/
+
 ---
 
 ## Features
